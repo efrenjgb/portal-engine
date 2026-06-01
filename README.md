@@ -29,7 +29,7 @@ Both are "2.5D": the world is fundamentally a 2D floor plan, and walls are alway
 vertical. That constraint is what makes the math cheap enough for a 1996 CPU —
 and what makes it a great thing to learn from.
 
-## The six techniques in this prototype
+## The seven techniques in this prototype
 
 **1. Sectors & walls (`Sector` struct, the map data).**
 The world is just three polygons. Each has a `floor`/`ceil` height and a list of
@@ -81,13 +81,24 @@ recover the column's lateral offset `tx`, rotate back into world space to get
 coordinates, the tiled floor stays locked to the ground as you move — the same
 idea as a Wolfenstein-style floor caster, fitted into the portal renderer.
 
+**7. Partial-height portals: doorways, lintels and windows.**
+A portal's opening runs from `max(floorA, floorB)` at the bottom to
+`min(ceilA, ceilB)` at the top; the leftover is drawn as solid wall — a riser
+below and a header (lintel) above. So just by choosing a neighbour's floor and
+ceiling you get different openings, with no special cases in the renderer:
+the corridor's low ceiling puts a header over each doorway, and the start
+room's east wall has a **window** into a small alcove whose floor is a high
+sill and whose ceiling is a low header, leaving a mid-height band. The window
+is non-walkable for free: its sill is taller than `MAX_STEP`, so the same
+collision check that lets you step through a doorway refuses it. A horizontal
+opening (the doorway/window gap *across* the wall) is made by splitting the
+wall into solid–portal–solid segments in the map data.
+
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
 thrown in so it reads as a room rather than flat colours.
 
 ## Things deliberately left out (good next steps)
 
-- **Sub-dividing walls for partial-height doors / windows.** Right now portals are
-  full-width openings.
 - **Sprites** (billboarded monsters/items), **sloped floors**, and **"sector over
   sector"** stacking (Build's room-over-room trick via teleporting portals).
 

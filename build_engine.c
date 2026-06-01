@@ -63,20 +63,28 @@ static float minf(float a,float b){ return a<b?a:b; }
  *  vert[(s+1)%n]. neighbors[s] is the index of the sector on the far side of
  *  that wall, or -1 if the wall is solid.
  *
- *  Three sectors connected in a line by wide doorway portals. The floors step
- *  up while the ceilings stay level, so each doorway is a tall opening with a
- *  low step at the bottom that you walk up:
+ *  A portal's OPENING runs from max(floorA,floorB) at the bottom to
+ *  min(ceilA,ceilB) at the top; whatever is left over is drawn as solid wall —
+ *  a "step"/riser below and a "header"/lintel above. Choosing the neighbour's
+ *  floor and ceiling is therefore all it takes to make doorways, low lintels
+ *  and windows:
+ *
+ *    - the corridor (S1) has a LOW ceiling, so each doorway gets a header
+ *      above the opening (and a small riser below);
+ *    - a WINDOW in S0's east wall opens into a small alcove (S3) whose floor is
+ *      a high sill and whose ceiling is a low header, leaving a mid-height band
+ *      you can see through. Its sill is taller than MAX_STEP, so the same step
+ *      check that lets you walk through doorways refuses the window.
  *
  *        y
- *        ^   +-----------+   sector 2  (floor 0.90, ceil 4.50)  — back room
+ *        ^   +-----------+        S2 back room   floor 0.90  ceil 4.50
  *        |   |           |
- *        |   |   .-----.  |
- *        |   +---|  1  |--+   sector 1  (floor 0.45, ceil 4.50)  — corridor
- *        |       '-----'
- *        |   +---.     .--+   sector 0  (floor 0.00, ceil 4.50)  — start room
+ *        |   +--[ S1 ]---+        S1 corridor    floor 0.45  ceil 2.60 (low!)
  *        |   |           |
+ *        |   |  S0    [W]|=S3     S0 start room  floor 0.00  ceil 4.50
+ *        |   |           |        S3 alcove      floor 1.20  ceil 2.60  (window)
  *        |   +-----------+
- *        +-------------------> x
+ *        +----------------------> x
  */
 typedef struct {
     float    floor, ceil;     /* heights, world units (z up)                */
@@ -86,25 +94,28 @@ typedef struct {
     uint32_t floorcol, ceilcol, wallcol;  /* base colours                   */
 } Sector;
 
-/* sector 0 — start room (with a wide doorway gap in its north wall at x=2..8) */
-static vec2 s0v[] = {{0,0},{10,0},{10,8},{8,8},{2,8},{0,8}};
-static int  s0n[] = {  -1,    -1,    -1,    1,   -1,   -1};
+/* sector 0 — start room. North wall has a doorway gap (x=2..8 -> S1); east wall
+ * has a window gap (y=3..6 -> alcove S3). */
+static vec2 s0v[] = {{0,0},{10,0},{10,3},{10,6},{10,8},{8,8},{2,8},{0,8}};
+static int  s0n[] = {  -1,    -1,    3,     -1,    -1,    1,   -1,   -1};
 
-/* sector 1 — corridor connecting the two rooms */
+/* sector 1 — corridor (low ceiling -> header over both doorways) */
 static vec2 s1v[] = {{2,8},{8,8},{8,12},{2,12}};
 static int  s1n[] = {   0,   -1,     2,    -1};
 
-/* sector 2 — back room (wide doorway gap in its south wall at x=2..8) */
+/* sector 2 — back room (doorway gap in its south wall at x=2..8) */
 static vec2 s2v[] = {{0,12},{2,12},{8,12},{10,12},{10,20},{0,20}};
 static int  s2n[] = {   -1,     1,    -1,     -1,     -1,    -1};
 
-/* All ceilings share one high height, so doorway portals have no upper step
- * and the openings are as tall as the rooms. Floors still step up, so you keep
- * the lower step (and the walk-up) through each doorway. */
+/* sector 3 — small alcove behind the window (high sill floor, low ceiling) */
+static vec2 s3v[] = {{10,3},{12,3},{12,6},{10,6}};
+static int  s3n[] = {   -1,    -1,    -1,    0};
+
 static Sector sectors[] = {
-    { 0.00f, 4.50f, s0v, s0n, 6, 0xFF243447, 0xFF1b2230, 0xFF6f7d8c },
-    { 0.45f, 4.50f, s1v, s1n, 4, 0xFF3a2d22, 0xFF241c15, 0xFF9c7b52 },
+    { 0.00f, 4.50f, s0v, s0n, 8, 0xFF243447, 0xFF1b2230, 0xFF6f7d8c },
+    { 0.45f, 2.60f, s1v, s1n, 4, 0xFF3a2d22, 0xFF241c15, 0xFF9c7b52 },
     { 0.90f, 4.50f, s2v, s2n, 6, 0xFF203a2a, 0xFF14241a, 0xFF5f9c74 },
+    { 1.20f, 2.60f, s3v, s3n, 4, 0xFF4a4630, 0xFF2a2818, 0xFFc8b050 },
 };
 #define NSECT ((int)(sizeof(sectors)/sizeof(sectors[0])))
 

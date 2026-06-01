@@ -191,7 +191,7 @@ static void plane_span(int x, int y0, int y1, float pz, uint32_t base){
         float denom = (H * 0.5f - y) - P.pitch * F;
         float tz = h * F / denom;                  /* depth of this screen row  */
         if(tz <= 0.0001f) continue;                /* wrong side of the horizon */
-        float tx = (W * 0.5f - x) * tz / F;        /* lateral offset, this col  */
+        float tx = (x - W * 0.5f) * tz / F;        /* invert screen_x = W/2+tx*F/tz */
         float wx = P.x + P.vcos * tz + P.vsin * tx;   /* inverse of the camera  */
         float wy = P.y + P.vsin * tz - P.vcos * tx;   /* rotation (M == M^-1)   */
         fb[y*W + x] = shade(plane_tex(base, wx, wy), distfade(tz));
@@ -252,9 +252,8 @@ static void render_world(void){
              *  If an endpoint sits at/behind the eye, slide it forward along
              *  the wall until tz == NEAR, remapping its texture coordinate.
              *  Because we already know the wall faces us, the clipped end
-             *  projects far off-screen on the correct side (the draw range is
-             *  clamped to the sector's window below), so the left end still
-             *  stays left of the right end — no edge-guessing needed.        */
+             *  projects far off-screen on the correct side and the draw range
+             *  is clamped to the sector's window below — no edge-guessing.     */
             const float NEARZ = 1e-4f;   /* keep depth > 0 so 1/tz stays finite */
             if(tz1 < NEARZ || tz2 < NEARZ){
                 float dz = tz2 - tz1;
@@ -278,10 +277,22 @@ static void render_world(void){
             }
 
             /* --- project to screen columns ------------------------------ *
-             *  Compact-renderer convention: screen_x = W/2 - tx*F/tz.        */
+             *  screen_x = W/2 + tx*F/tz : +tx is to the player's right and maps
+             *  to the right of the screen, so the view is not mirrored.        */
             float xs1 = F / tz1, xs2 = F / tz2;
-            int   x1  = (int)(W/2 - tx1 * xs1);
-            int   x2  = (int)(W/2 - tx2 * xs2);
+            int   x1  = (int)(W/2 + tx1 * xs1);
+            int   x2  = (int)(W/2 + tx2 * xs2);
+            /* With this (non-mirrored) projection a front-facing wall comes out
+             * right-to-left, so swap its ends to keep the column loop running
+             * left to right. tx isn't needed past this point, so we don't swap
+             * it; tz/xs/u and the screen x's are kept in sync. */
+            if(x1 > x2){
+                int   xi = x1; x1 = x2; x2 = xi;
+                float t;
+                t = tz1; tz1 = tz2; tz2 = t;
+                t = xs1; xs1 = xs2; xs2 = t;
+                t = u1;  u1  = u2;  u2  = t;
+            }
             if(x1 >= x2) continue;                       /* zero-width sliver  */
             if(x2 < now.sx1 || x1 > now.sx2) continue;   /* outside window     */
 
@@ -500,13 +511,13 @@ int main(void){
         prev = nowt;
 
         /* ---- look ---- */
-        P.angle += mdx * 0.0030f;
+        P.angle -= mdx * 0.0030f;   /* mouse right turns right          */
         P.pitch += mdy * 0.0018f;   /* mouse up looks up (pitch < 0 = up) */
         const Uint8 *k = SDL_GetKeyboardState(NULL);
-        if(k[SDL_SCANCODE_Q]) P.angle -= 1.8f * dt;
-        if(k[SDL_SCANCODE_E]) P.angle += 1.8f * dt;
-        if(k[SDL_SCANCODE_R]) P.pitch -= 1.2f * dt;   /* look up   */
-        if(k[SDL_SCANCODE_F]) P.pitch += 1.2f * dt;   /* look down */
+        if(k[SDL_SCANCODE_Q]) P.angle += 1.8f * dt;   /* turn left  */
+        if(k[SDL_SCANCODE_E]) P.angle -= 1.8f * dt;   /* turn right */
+        if(k[SDL_SCANCODE_R]) P.pitch -= 1.2f * dt;   /* look up    */
+        if(k[SDL_SCANCODE_F]) P.pitch += 1.2f * dt;   /* look down  */
         P.pitch = maxf(-0.55f, minf(0.55f, P.pitch));
         P.vsin = sinf(P.angle); P.vcos = cosf(P.angle);
 
@@ -518,11 +529,9 @@ int main(void){
         if(k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT])  str -= 1;
         if(fwd || str){
             float sp = MOVE_SPD * dt;
-            /* forward = (cos,sin). The view is horizontally mirrored (compact
-             * screen_x = W/2 - tx*F/tz convention), so strafe is negated to
-             * match what's on screen: D moves the scene left, A moves it right. */
-            float dx = (P.vcos*fwd - P.vsin*str) * sp;
-            float dy = (P.vsin*fwd + P.vcos*str) * sp;
+            /* forward = (cos,sin), strafe-right = (sin,-cos) */
+            float dx = (P.vcos*fwd + P.vsin*str) * sp;
+            float dy = (P.vsin*fwd - P.vcos*str) * sp;
             move_player(dx, dy);
         }
         keep_inside(0.01f);   /* never sit exactly on a wall/portal plane */

@@ -54,13 +54,16 @@ and the ceiling change height, all correctly occluded.
 
 **4. Projection + perspective-correct texturing.**
 Each wall endpoint is rotated into camera space (`tx` lateral, `tz` depth) and
-projected with `screen_x = W/2 - tx*F/tz`. The top and bottom edges of a wall are
-straight 3D lines, so they project to straight screen lines — meaning their screen
-Y is **linear in screen X** (no per-pixel divide needed vertically). Horizontally,
-`1/z` and `u/z` are linear in screen X, so we interpolate those and divide once
-per column to get a perspective-correct texture coordinate `u`. Within a column
-the depth is constant, so the vertical texture coordinate is linear too. That's
-the classic affine-per-column / perspective-per-span trick.
+projected with `screen_x = W/2 + tx*F/tz`, so a point to the player's right lands
+on the right of the screen (not mirrored). With this convention a front-facing
+wall comes out right-to-left, so we swap its endpoints to keep the column loop
+running left-to-right. The top and bottom edges of a wall are straight 3D lines,
+so they project to straight screen lines — meaning their screen Y is **linear in
+screen X** (no per-pixel divide needed vertically). Horizontally, `1/z` and `u/z`
+are linear in screen X, so we interpolate those and divide once per column to get
+a perspective-correct texture coordinate `u`. Within a column the depth is
+constant, so the vertical texture coordinate is linear too. That's the classic
+affine-per-column / perspective-per-span trick.
 
 **5. The pitch "look up/down" shear (`YPROJ` macro).**
 True pitch would tilt the camera and break the "walls are vertical" assumption.
@@ -87,10 +90,6 @@ thrown in so it reads as a room rather than flat colours.
   full-width openings.
 - **Sprites** (billboarded monsters/items), **sloped floors**, and **"sector over
   sector"** stacking (Build's room-over-room trick via teleporting portals).
-- The compact `screen_x = W/2 - tx*F/tz` convention renders the scene
-  **horizontally mirrored** relative to the map's handedness — invisible in a
-  symmetric room, and it keeps the column loop going left-to-right without
-  endpoint swaps. Flip the sign (and swap endpoints) if you want it un-mirrored.
 
 ## Where to read more
 

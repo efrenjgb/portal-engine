@@ -12,7 +12,10 @@ cc build_engine.c -o build_engine $(sdl2-config --cflags --libs) -lm
 
 **Controls:** `WASD`/arrows move & strafe · mouse looks (turn + pitch) ·
 `Q`/`E` turn · `R`/`F` pitch · `M` release mouse · `Esc` quit.
-The green lines on the top-left minimap are **portals**; grey lines are solid walls.
+`Tab` toggles **height-edit mode**: `T`/`G` raise/lower the *floor* and `Y`/`H`
+raise/lower the *ceiling* of whatever sector you're aiming at.
+The green lines on the top-left minimap are **portals**; grey lines are solid
+walls; the **magenta** outline is the sector you're aiming at in edit mode.
 
 ---
 
@@ -29,7 +32,7 @@ Both are "2.5D": the world is fundamentally a 2D floor plan, and walls are alway
 vertical. That constraint is what makes the math cheap enough for a 1996 CPU —
 and what makes it a great thing to learn from.
 
-## The eight techniques in this prototype
+## The nine techniques in this prototype
 
 **1. Sectors & walls (`Sector` struct, the map data).**
 The world is just three polygons. Each has a `floor`/`ceil` height and a list of
@@ -105,6 +108,15 @@ sprite — e.g. a barrel seen through a far doorway is clipped to the opening
 instead of poking over the header. (The period-accurate Build/Doom alternative
 is to sort sprites and walls per sector and clip with per-column spans; a depth
 buffer is the simpler, more general way to the same result.)
+
+**9. Live height editing (`pick_sector` + `Tab`).**
+Build's signature trick was editing the world while walking around in it. Press
+`Tab` and a 2-D ray is cast straight ahead — `pick_sector` walks it through
+portals until it meets a solid wall — to find the sector you're aiming at; then
+`T`/`G` and `Y`/`H` change that sector's floor and ceiling in real time. Nothing
+is precomputed, so the next frame just renders the new heights. Because heights
+are plain sector fields, raising a floor turns a doorway into a step, lowering a
+ceiling makes a header, and so on — all live.
 
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
 thrown in so it reads as a room rather than flat colours.

@@ -147,6 +147,8 @@ struct {
 /* ------------------------------ framebuffer ----------------------------- */
 static uint32_t *fb;          /* W*H, 0xAARRGGBB                              */
 static float zbuf[W*H];       /* per-pixel depth of the nearest opaque surface */
+static int   edit_mode = 0;   /* in-engine height editor (toggle with TAB)     */
+static int   g_pick    = -1;  /* sector currently under the crosshair          */
 
 static uint32_t shade(uint32_t c, float f){
     if(f < 0) f = 0; if(f > 1) f = 1;
@@ -477,6 +479,7 @@ static void draw_minimap(void){
         for(int w = 0; w < s->npoints; ++w){
             vec2 a = s->vert[w], b = s->vert[(w+1)%s->npoints];
             uint32_t c = (s->neigh[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0; /* portal=green */
+            if(i == g_pick) c = 0xFFff30ff;                  /* aimed sector = magenta */
             line2d(MX(a.x), MY(a.y), MX(b.x), MY(b.y), c);
         }
     }
@@ -585,6 +588,34 @@ static void collide_sprites(void){
     }
 }
 
+/* Which sector is under the crosshair? Cast a 2D ray straight ahead, stepping
+ * through portals until it meets a solid wall; that wall's sector is the one we
+ * are looking into. (Horizontal only — picking is a 2D question.) */
+static int pick_sector(void){
+    float px = P.x, py = P.y, dx = P.vcos, dy = P.vsin;
+    int sec = P.sector;
+    for(int iter = 0; iter < 64; ++iter){
+        Sector *s = &sectors[sec];
+        float bt = 1e30f; int bw = -1;
+        for(int w = 0; w < s->npoints; ++w){
+            vec2 a = s->vert[w], b = s->vert[(w+1) % s->npoints];
+            float ex = b.x - a.x, ey = b.y - a.y;
+            float den = dx*ey - dy*ex;
+            if(fabsf(den) < 1e-9f) continue;            /* ray parallel to wall */
+            float t = ((a.x-px)*ey - (a.y-py)*ex) / den;   /* dist along ray    */
+            float u = ((a.x-px)*dy - (a.y-py)*dx) / den;   /* pos along wall     */
+            if(t > 1e-4f && u >= 0.0f && u <= 1.0f && t < bt){ bt = t; bw = w; }
+        }
+        if(bw < 0) break;
+        int nb = s->neigh[bw];
+        if(nb < 0) break;                               /* solid wall -> done   */
+        sec = nb;                                        /* step into neighbour  */
+        px += dx * (bt + 1e-3f);
+        py += dy * (bt + 1e-3f);
+    }
+    return sec;
+}
+
 /* =========================================================================
  *  main loop
  * =======================================================================*/
@@ -609,6 +640,9 @@ int main(void){
              "   Q / E         : turn left / right (keyboard)\n"
              "   R / F         : look up / down (keyboard)\n"
              "   M             : release / recapture mouse\n"
+             "   Tab           : toggle height-edit mode\n"
+             "     T / G       :   raise / lower FLOOR   of aimed sector\n"
+             "     Y / H       :   raise / lower CEILING of aimed sector\n"
              "   Esc           : quit\n\n");
 
     int running = 1, mouse_grabbed = 1;
@@ -627,6 +661,7 @@ int main(void){
                     mouse_grabbed = !mouse_grabbed;
                     SDL_SetRelativeMouseMode(mouse_grabbed ? SDL_TRUE : SDL_FALSE);
                 }
+                if(e.key.keysym.sym == SDLK_TAB) edit_mode = !edit_mode;
             }
         }
 
@@ -662,6 +697,18 @@ int main(void){
         collide_sprites();   /* bump into barrels */
         keep_inside();       /* collision radius off walls, hair off portals */
 
+        /* ---- height editor: change the aimed sector's floor / ceiling ---- */
+        g_pick = -1;
+        if(edit_mode){
+            g_pick = pick_sector();
+            Sector *t = &sectors[g_pick];
+            float rate = 2.0f * dt;
+            if(k[SDL_SCANCODE_T]) t->floor = minf(t->floor + rate, t->ceil - 0.3f);
+            if(k[SDL_SCANCODE_G]) t->floor = maxf(t->floor - rate, -8.0f);
+            if(k[SDL_SCANCODE_Y]) t->ceil  = minf(t->ceil  + rate,  18.0f);
+            if(k[SDL_SCANCODE_H]) t->ceil  = maxf(t->ceil  - rate,  t->floor + 0.3f);
+        }
+
         /* ---- keep the eye at the right height for the current floor ---- */
         float ground = sectors[P.sector].floor + EYE;
         P.z += (ground - P.z) * minf(1.0f, dt * 12.0f);   /* smooth step */
@@ -671,8 +718,9 @@ int main(void){
         render_world();
         draw_sprites();   /* after walls: depth-tested against the wall buffer */
         draw_minimap();
-        /* crosshair */
-        for(int i=-5;i<=5;i++){ putpx(W/2+i,H/2,0xFFe0e0e0); putpx(W/2,H/2+i,0xFFe0e0e0); }
+        /* crosshair (green in edit mode) */
+        uint32_t xh = edit_mode ? 0xFF40ff40 : 0xFFe0e0e0;
+        for(int i=-5;i<=5;i++){ putpx(W/2+i,H/2,xh); putpx(W/2,H/2+i,xh); }
 
         SDL_UpdateTexture(tex, NULL, fb, W * sizeof(uint32_t));
         SDL_RenderClear(ren);

@@ -44,7 +44,7 @@
 #define MAX_STEP  0.51f  /* tallest step you can walk up                    */
 #define BODY      1.70f  /* min ceiling clearance to fit through a portal   */
 #define PLAYER_R  0.35f  /* collision radius: how far the eye stays off walls */
-#define MOVE_SPD  3.4f   /* metres / second                                 */
+#define MOVE_SPD  5.1f   /* metres / second (1.5x the original 3.4)          */
 #define FOG_DIST  34.0f  /* distance at which shading reaches its darkest    */
 
 static float F;          /* focal length in pixels, derived from FOV_H      */

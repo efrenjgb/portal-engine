@@ -29,7 +29,7 @@ Both are "2.5D": the world is fundamentally a 2D floor plan, and walls are alway
 vertical. That constraint is what makes the math cheap enough for a 1996 CPU —
 and what makes it a great thing to learn from.
 
-## The seven techniques in this prototype
+## The eight techniques in this prototype
 
 **1. Sectors & walls (`Sector` struct, the map data).**
 The world is just three polygons. Each has a `floor`/`ceil` height and a list of
@@ -94,13 +94,24 @@ collision check that lets you step through a doorway refuses it. A horizontal
 opening (the doorway/window gap *across* the wall) is made by splitting the
 wall into solid–portal–solid segments in the map data.
 
+**8. Sprites (billboards) with a 1-D depth buffer (`draw_sprites`).**
+Items/monsters are flat camera-facing billboards. While drawing walls we record
+each column's wall depth in `walldepth[x]`; then we project each sprite (same
+`tx`, `screen_x` and height-shear as a wall), sort them far-to-near, and for each
+column skip it if a wall is nearer. That's the Wolfenstein/raycaster sprite trick
+fitted to the portal renderer. Caveat: one depth per column can't represent
+partial-height occluders, so a sprite viewed through a far doorway can poke over
+the lintel — the "proper" fix is to draw sprites per-sector inside the flood,
+clipped to that sector's column window.
+
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
 thrown in so it reads as a room rather than flat colours.
 
 ## Things deliberately left out (good next steps)
 
-- **Sprites** (billboarded monsters/items), **sloped floors**, and **"sector over
-  sector"** stacking (Build's room-over-room trick via teleporting portals).
+- **Sloped floors**, and **"sector over sector"** stacking (Build's room-over-room
+  trick via teleporting portals).
+- **Sprite collision** — right now you can walk through the barrels.
 
 ## Where to read more
 

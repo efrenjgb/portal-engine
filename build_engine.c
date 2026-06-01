@@ -119,6 +119,22 @@ static Sector sectors[] = {
 };
 #define NSECT ((int)(sizeof(sectors)/sizeof(sectors[0])))
 
+/* ------------------------------- sprites -------------------------------- *
+ *  Flat camera-facing billboards. z is the height of the feet (sit them on
+ *  their sector's floor); radius is half the on-screen width in world units. */
+typedef struct {
+    float    x, y, z;
+    float    radius, height;
+    uint32_t col;
+} Sprite;
+static Sprite sprites[] = {
+    { 3.0f,  3.0f, 0.00f, 0.35f, 1.10f, 0xFF9a6a30 },   /* barrel, start room  */
+    { 7.5f,  6.0f, 0.00f, 0.35f, 1.10f, 0xFF7a8a40 },   /* barrel, start room  */
+    { 3.5f, 16.5f, 0.90f, 0.40f, 1.40f, 0xFFa84038 },   /* drum, back room     */
+    { 6.5f, 14.5f, 0.90f, 0.35f, 1.10f, 0xFF4060a0 },   /* drum, back room     */
+};
+#define NSPR ((int)(sizeof(sprites)/sizeof(sprites[0])))
+
 /* ------------------------------- the player ----------------------------- */
 struct {
     float x, y, z;        /* eye position (z is computed from sector floor)  */
@@ -129,7 +145,8 @@ struct {
 } P = { 5.0f, 4.0f, 0.0f, (float)M_PI/2.0f, 0.0f, 1.0f, 0.0f, 0 };
 
 /* ------------------------------ framebuffer ----------------------------- */
-static uint32_t *fb;      /* W*H, 0xAARRGGBB                                  */
+static uint32_t *fb;        /* W*H, 0xAARRGGBB                                */
+static float walldepth[W];  /* 1-D z-buffer: depth of the wall in each column */
 
 static uint32_t shade(uint32_t c, float f){
     if(f < 0) f = 0; if(f > 1) f = 1;
@@ -216,7 +233,7 @@ static void plane_span(int x, int y0, int y1, float pz, uint32_t base){
 static void render_world(void){
     static int ytop[W], ybot[W];           /* per-column open vertical window */
     int seen[NSECT];
-    for(int x = 0; x < W; ++x){ ytop[x] = 0; ybot[x] = H-1; }
+    for(int x = 0; x < W; ++x){ ytop[x] = 0; ybot[x] = H-1; walldepth[x] = 1e9f; }
     for(int i = 0; i < NSECT; ++i) seen[i] = 0;
 
     /* circular queue of sectors-to-draw, each with a screen window */
@@ -353,6 +370,7 @@ static void render_world(void){
                     /* solid wall: textured top-to-bottom */
                     wall_span(x, yaf, ybf, sec->ceil, sec->floor,
                               wt, wb, u, sec->wallcol, dep);
+                    walldepth[x] = dep;          /* this column's occluder depth */
                 } else {
                     float naf = n1a + (n2a - n1a) * t;   /* neighbour ceiling   */
                     float nbf = n1b + (n2b - n1b) * t;   /* neighbour floor     */
@@ -379,6 +397,67 @@ static void render_world(void){
 }
 
 /* =========================================================================
+ *  SPRITES  —  camera-facing billboards, depth-tested against the wall buffer
+ * =======================================================================*/
+/* Procedural barrel/drum texture. u,v in [0,1]; returns 0 (transparent) outside
+ * the silhouette. The cylinder is shaded bright-in-the-middle with a few hoops. */
+static uint32_t sprite_tex(uint32_t base, float u, float v){
+    float cu = (u - 0.5f) * 2.0f;                  /* -1 .. 1 across the width   */
+    const float r = 0.82f;                         /* silhouette half-width      */
+    if(fabsf(cu) > r || v < 0.0f || v > 1.0f) return 0;     /* transparent       */
+    float round = sqrtf(1.0f - (cu/r)*(cu/r));     /* 1 centre -> 0 at the edge  */
+    float f = 0.45f + 0.55f * round;               /* cylinder shading           */
+    if(v < 0.06f || v > 0.95f ||
+       fabsf(v-0.30f) < 0.04f || fabsf(v-0.70f) < 0.04f) f *= 0.55f;   /* hoops  */
+    return shade(base, f);
+}
+
+static void draw_sprites(void){
+    /* depth-sort indices, far to near, so nearer sprites paint over farther */
+    int order[NSPR]; float depth[NSPR];
+    for(int i = 0; i < NSPR; ++i){
+        float rx = sprites[i].x - P.x, ry = sprites[i].y - P.y;
+        depth[i] = rx*P.vcos + ry*P.vsin;          /* tz                         */
+        order[i] = i;
+    }
+    for(int i = 1; i < NSPR; ++i){                  /* insertion sort by depth desc */
+        int k = order[i]; float d = depth[k]; int j = i-1;
+        while(j >= 0 && depth[order[j]] < d){ order[j+1] = order[j]; --j; }
+        order[j+1] = k;
+    }
+
+    for(int o = 0; o < NSPR; ++o){
+        Sprite *sp = &sprites[order[o]];
+        float rx = sp->x - P.x, ry = sp->y - P.y;
+        float tz = rx*P.vcos + ry*P.vsin;          /* depth (forward)            */
+        if(tz < 0.2f) continue;                     /* behind / too close         */
+        float tx = rx*P.vsin - ry*P.vcos;          /* lateral (same as walls)    */
+
+        float sc  = F / tz;
+        float cx  = W*0.5f + tx * sc;               /* screen centre x            */
+        /* feet and top heights, projected with the same pitch shear as walls */
+        float yfeet = H*0.5f - ((sp->z            - P.z) + tz*P.pitch) * sc;
+        float ytopf = H*0.5f - ((sp->z + sp->height - P.z) + tz*P.pitch) * sc;
+        float wpx = sp->radius * sc;                /* half width in pixels       */
+
+        int x0 = (int)(cx - wpx), x1 = (int)(cx + wpx);
+        int yt = (int)ytopf,      yb = (int)yfeet;
+        if(x1 <= x0 || yb <= yt) continue;
+        float fade = distfade(tz);
+
+        for(int x = maxi(x0,0); x <= mini(x1,W-1); ++x){
+            if(tz >= walldepth[x]) continue;        /* a wall is nearer here      */
+            float uu = (x - x0) / (float)(x1 - x0);
+            for(int y = maxi(yt,0); y <= mini(yb,H-1); ++y){
+                float vv = (y - yt) / (float)(yb - yt);
+                uint32_t c = sprite_tex(sp->col, uu, vv);
+                if(c) fb[y*W + x] = shade(c, fade);
+            }
+        }
+    }
+}
+
+/* =========================================================================
  *  2D minimap overlay (top-left) — handy for understanding what you see
  * =======================================================================*/
 static void putpx(int x,int y,uint32_t c){ if(x>=0&&x<W&&y>=0&&y<H) fb[y*W+x]=c; }
@@ -398,6 +477,10 @@ static void draw_minimap(void){
             uint32_t c = (s->neigh[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0; /* portal=green */
             line2d(MX(a.x), MY(a.y), MX(b.x), MY(b.y), c);
         }
+    }
+    for(int i = 0; i < NSPR; ++i){                  /* sprites as small dots */
+        int sx = MX(sprites[i].x), sy = MY(sprites[i].y);
+        for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(sx+dx,sy+dy, sprites[i].col);
     }
     int px = MX(P.x), py = MY(P.y);
     line2d(px, py, MX(P.x + P.vcos*1.6f), MY(P.y + P.vsin*1.6f), 0xFFffd040);
@@ -564,6 +647,7 @@ int main(void){
         /* ---- draw ---- */
         for(int i = 0; i < W*H; ++i) fb[i] = 0xFF0a0c12;  /* clear to dark */
         render_world();
+        draw_sprites();   /* after walls: depth-tested against the wall buffer */
         draw_minimap();
         /* crosshair */
         for(int i=-5;i<=5;i++){ putpx(W/2+i,H/2,0xFFe0e0e0); putpx(W/2,H/2+i,0xFFe0e0e0); }

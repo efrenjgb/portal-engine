@@ -113,7 +113,6 @@ thrown in so it reads as a room rather than flat colours.
 
 - **Sloped floors**, and **"sector over sector"** stacking (Build's room-over-room
   trick via teleporting portals).
-- **Sprite collision** — right now you can walk through the barrels.
 
 ## Where to read more
 

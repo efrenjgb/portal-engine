@@ -566,6 +566,25 @@ static void keep_inside(void){
     }
 }
 
+/* Push the player out of any sprite they overlap (circle vs circle), so you
+ * bump into the barrels instead of walking through them. Only sprites that
+ * overlap the player's body vertically count, so something far overhead or in a
+ * pit wouldn't block. */
+static void collide_sprites(void){
+    float feet = sectors[P.sector].floor, head = feet + BODY;
+    for(int i = 0; i < NSPR; ++i){
+        Sprite *s = &sprites[i];
+        if(s->z + s->height < feet || s->z > head) continue;   /* no height overlap */
+        float dx = P.x - s->x, dy = P.y - s->y;
+        float r  = PLAYER_R + s->radius;
+        float d2 = dx*dx + dy*dy;
+        if(d2 >= r*r) continue;
+        float d = sqrtf(d2);
+        if(d > 1e-6f){ P.x += dx/d * (r - d); P.y += dy/d * (r - d); }
+        else         { P.x += r; }                              /* dead centre */
+    }
+}
+
 /* =========================================================================
  *  main loop
  * =======================================================================*/
@@ -640,7 +659,8 @@ int main(void){
             float dy = (P.vsin*fwd - P.vcos*str) * sp;
             move_player(dx, dy);
         }
-        keep_inside();   /* collision radius off walls, hair off portals */
+        collide_sprites();   /* bump into barrels */
+        keep_inside();       /* collision radius off walls, hair off portals */
 
         /* ---- keep the eye at the right height for the current floor ---- */
         float ground = sectors[P.sector].floor + EYE;

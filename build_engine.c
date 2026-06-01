@@ -374,39 +374,45 @@ static void draw_minimap(void){
 /* =========================================================================
  *  movement, collision and sector tracking
  * =======================================================================*/
-static float point_side(float px,float py, vec2 a, vec2 b){
-    /* >0 means the point is on the interior (left) side of CCW edge a->b */
-    return (b.x-a.x)*(py-a.y) - (b.y-a.y)*(px-a.x);
+/* Signed area of triangle (a,b,c); sign tells which side of a->b c is on. */
+static float orient(float ax,float ay,float bx,float by,float cx,float cy){
+    return (bx-ax)*(cy-ay) - (by-ay)*(cx-ax);
 }
-static int box_overlap(float ax,float ay,float bx,float by,
-                       float cx,float cy,float dx,float dy){
-    return minf(ax,bx) <= maxf(cx,dx) && minf(cx,dx) <= maxf(ax,bx)
-        && minf(ay,by) <= maxf(cy,dy) && minf(cy,dy) <= maxf(ay,by);
+/* Do the segments p1->p2 and p3->p4 properly cross? (collinear cases ignored) */
+static int seg_cross(float x1,float y1,float x2,float y2,
+                     float x3,float y3,float x4,float y4){
+    float o1 = orient(x1,y1,x2,y2,x3,y3), o2 = orient(x1,y1,x2,y2,x4,y4);
+    float o3 = orient(x3,y3,x4,y4,x1,y1), o4 = orient(x3,y3,x4,y4,x2,y2);
+    return (o1*o2 < 0) && (o3*o4 < 0);
 }
 
 static void move_player(float dx, float dy){
-    Sector *sec = &sectors[P.sector];
-    for(int s = 0; s < sec->npoints; ++s){
-        vec2 a = sec->vert[s], b = sec->vert[(s+1) % sec->npoints];
-        /* about to step over to the outside of this wall? */
-        if(box_overlap(P.x, P.y, P.x+dx, P.y+dy, a.x, a.y, b.x, b.y)
-           && point_side(P.x+dx, P.y+dy, a, b) < 0){
-            int nb = sec->neigh[s];
-            int passable = 0;
-            if(nb >= 0){
-                float step = sectors[nb].floor - sec->floor;
-                float head = sectors[nb].ceil  - sectors[nb].floor;
-                if(step <= MAX_STEP && head >= BODY) passable = 1;
-            }
-            if(passable){
-                P.sector = nb;                  /* walk through the portal     */
-            } else {
-                /* slide: keep only the component of motion along the wall */
-                float wx = b.x-a.x, wy = b.y-a.y;
-                float k = (dx*wx + dy*wy) / (wx*wx + wy*wy);
-                dx = wx*k; dy = wy*k;
-            }
+    /* Resolve a few times so we can slide along one wall and still stop at the
+     * next (e.g. pushing into a corner). */
+    for(int iter = 0; iter < 4; ++iter){
+        Sector *sec = &sectors[P.sector];
+        int hit = -1;
+        for(int s = 0; s < sec->npoints; ++s){
+            vec2 a = sec->vert[s], b = sec->vert[(s+1) % sec->npoints];
+            /* does our actual path cross THIS wall's segment? */
+            if(seg_cross(P.x, P.y, P.x+dx, P.y+dy, a.x, a.y, b.x, b.y)){ hit = s; break; }
         }
+        if(hit < 0) break;                      /* clear path — nothing in the way */
+
+        vec2 a = sec->vert[hit], b = sec->vert[(hit+1) % sec->npoints];
+        int nb = sec->neigh[hit];
+        int passable = 0;
+        if(nb >= 0){
+            float step = sectors[nb].floor - sec->floor;
+            float head = sectors[nb].ceil  - sectors[nb].floor;
+            if(step <= MAX_STEP && head >= BODY) passable = 1;
+        }
+        if(passable){ P.sector = nb; break; }   /* step through the portal, done */
+
+        /* solid wall (or step too tall): slide along it and re-check */
+        float wx = b.x-a.x, wy = b.y-a.y;
+        float k = (dx*wx + dy*wy) / (wx*wx + wy*wy);
+        dx = wx*k; dy = wy*k;
     }
     P.x += dx; P.y += dy;
 }

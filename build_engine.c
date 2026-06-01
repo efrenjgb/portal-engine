@@ -255,14 +255,26 @@ static void render_world(void){
              *  projects far off-screen on the correct side (the draw range is
              *  clamped to the sector's window below), so the left end still
              *  stays left of the right end — no edge-guessing needed.        */
-            const float NEAR = 0.02f;
-            if(tz1 < NEAR){
-                float t = (NEAR - tz1) / (tz2 - tz1);
-                tx1 += (tx2 - tx1) * t; u1 += (u2 - u1) * t; tz1 = NEAR;
-            }
-            if(tz2 < NEAR){
-                float t = (NEAR - tz2) / (tz1 - tz2);
-                tx2 += (tx1 - tx2) * t; u2 += (u1 - u2) * t; tz2 = NEAR;
+            const float NEARZ = 1e-4f;   /* keep depth > 0 so 1/tz stays finite */
+            if(tz1 < NEARZ || tz2 < NEARZ){
+                float dz = tz2 - tz1;
+                if(fabsf(dz) < 1e-7f){
+                    /* wall lies right on the near plane (you are looking along
+                     * it edge-on, or straight through a portal): lifting both
+                     * ends to NEARZ keeps the same screen span without a
+                     * divide-by-zero. */
+                    if(tz1 < NEARZ) tz1 = NEARZ;
+                    if(tz2 < NEARZ) tz2 = NEARZ;
+                } else {
+                    if(tz1 < NEARZ){
+                        float t = (NEARZ - tz1) / dz;
+                        tx1 += (tx2 - tx1) * t; u1 += (u2 - u1) * t; tz1 = NEARZ;
+                    }
+                    if(tz2 < NEARZ){
+                        float t = (NEARZ - tz2) / (tz1 - tz2);
+                        tx2 += (tx1 - tx2) * t; u2 += (u1 - u2) * t; tz2 = NEARZ;
+                    }
+                }
             }
 
             /* --- project to screen columns ------------------------------ *

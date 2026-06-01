@@ -501,12 +501,12 @@ int main(void){
 
         /* ---- look ---- */
         P.angle += mdx * 0.0030f;
-        P.pitch -= mdy * 0.0018f;
+        P.pitch += mdy * 0.0018f;   /* mouse up looks up (pitch < 0 = up) */
         const Uint8 *k = SDL_GetKeyboardState(NULL);
         if(k[SDL_SCANCODE_Q]) P.angle -= 1.8f * dt;
         if(k[SDL_SCANCODE_E]) P.angle += 1.8f * dt;
-        if(k[SDL_SCANCODE_R]) P.pitch += 1.2f * dt;
-        if(k[SDL_SCANCODE_F]) P.pitch -= 1.2f * dt;
+        if(k[SDL_SCANCODE_R]) P.pitch -= 1.2f * dt;   /* look up   */
+        if(k[SDL_SCANCODE_F]) P.pitch += 1.2f * dt;   /* look down */
         P.pitch = maxf(-0.55f, minf(0.55f, P.pitch));
         P.vsin = sinf(P.angle); P.vcos = cosf(P.angle);
 
@@ -518,9 +518,11 @@ int main(void){
         if(k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT])  str -= 1;
         if(fwd || str){
             float sp = MOVE_SPD * dt;
-            /* forward = (cos,sin); strafe-right = (sin,-cos) */
-            float dx = (P.vcos*fwd + P.vsin*str) * sp;
-            float dy = (P.vsin*fwd - P.vcos*str) * sp;
+            /* forward = (cos,sin). The view is horizontally mirrored (compact
+             * screen_x = W/2 - tx*F/tz convention), so strafe is negated to
+             * match what's on screen: D moves the scene left, A moves it right. */
+            float dx = (P.vcos*fwd - P.vsin*str) * sp;
+            float dy = (P.vsin*fwd + P.vcos*str) * sp;
             move_player(dx, dy);
         }
         keep_inside(0.01f);   /* never sit exactly on a wall/portal plane */

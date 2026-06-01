@@ -43,6 +43,7 @@
 #define EYE       1.62f  /* camera height above the floor (metres)          */
 #define MAX_STEP  0.51f  /* tallest step you can walk up                    */
 #define BODY      1.70f  /* min ceiling clearance to fit through a portal   */
+#define PLAYER_R  0.35f  /* collision radius: how far the eye stays off walls */
 #define MOVE_SPD  3.4f   /* metres / second                                 */
 #define FOG_DIST  34.0f  /* distance at which shading reaches its darkest    */
 
@@ -440,22 +441,31 @@ static void move_player(float dx, float dy){
     P.x += dx; P.y += dy;
 }
 
-/* Keep the camera a hair inside its sector so it is never exactly coplanar
- * with a wall. Right on a portal threshold the shared wall is edge-on (tz==0
- * at both ends), so it gets skipped and the neighbour behind it never draws —
- * punching a black hole into the view. Nudging the camera to the interior side
- * of every wall keeps a convex sector's walls tiling the whole screen. */
-static void keep_inside(float eps){
+/* Push the camera off the walls of its sector:
+ *   - PLAYER_R away from solid walls, so you stop a comfortable distance back
+ *     instead of pressing the eye against the wall;
+ *   - a hair (1 cm) off portal planes, just so the camera is never exactly
+ *     coplanar with one (an edge-on wall has tz==0 at both ends, gets skipped,
+ *     and would punch a black hole through to the sector behind it).
+ * We measure to the nearest point of each wall SEGMENT, not its infinite line:
+ * that's what lets you still walk through a doorway — the solid posts beside the
+ * opening only push back when you are actually next to them, not when you are in
+ * the gap between them. */
+static void keep_inside(void){
     Sector *sec = &sectors[P.sector];
     for(int s = 0; s < sec->npoints; ++s){
         vec2 a = sec->vert[s], b = sec->vert[(s+1) % sec->npoints];
+        float margin = (sec->neigh[s] < 0) ? PLAYER_R : 0.01f;
         float ex = b.x - a.x, ey = b.y - a.y;
-        float len = sqrtf(ex*ex + ey*ey);
-        if(len < 1e-6f) continue;
-        float dist = (ex*(P.y - a.y) - ey*(P.x - a.x)) / len;   /* + = interior */
-        if(dist < eps){
-            P.x += (-ey/len) * (eps - dist);     /* push along the inward normal */
-            P.y += ( ex/len) * (eps - dist);
+        float L2 = ex*ex + ey*ey;
+        if(L2 < 1e-12f) continue;
+        float t = ((P.x - a.x)*ex + (P.y - a.y)*ey) / L2;   /* param of nearest pt */
+        if(t < 0) t = 0; if(t > 1) t = 1;
+        float dx = P.x - (a.x + ex*t), dy = P.y - (a.y + ey*t);   /* eye -> wall */
+        float d = sqrtf(dx*dx + dy*dy);
+        if(d < margin){
+            if(d > 1e-6f){ P.x += dx/d * (margin - d); P.y += dy/d * (margin - d); }
+            else { float L = sqrtf(L2); P.x += -ey/L*margin; P.y += ex/L*margin; }
         }
     }
 }
@@ -534,7 +544,7 @@ int main(void){
             float dy = (P.vsin*fwd - P.vcos*str) * sp;
             move_player(dx, dy);
         }
-        keep_inside(0.01f);   /* never sit exactly on a wall/portal plane */
+        keep_inside();   /* collision radius off walls, hair off portals */
 
         /* ---- keep the eye at the right height for the current floor ---- */
         float ground = sectors[P.sector].floor + EYE;

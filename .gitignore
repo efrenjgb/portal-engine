@@ -1,0 +1,4 @@
+# compiled binary and build artifacts
+build_engine
+*.o
+*.dSYM/

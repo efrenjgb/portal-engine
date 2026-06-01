@@ -162,19 +162,6 @@ static void wall_span(int x, float yTopf, float yBotf, float vTop, float vBot,
     }
 }
 
-/* Intersection point of the infinite lines (p1->p2) and (p3->p4). */
-static vec2 intersect(float x1,float y1,float x2,float y2,
-                      float x3,float y3,float x4,float y4){
-    float d = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4);
-    if(fabsf(d) < 1e-9f) d = 1e-9f;
-    float a = x1*y2 - y1*x2;
-    float b = x3*y4 - y3*x4;
-    vec2 r;
-    r.x = (a*(x3-x4) - (x1-x2)*b) / d;
-    r.y = (a*(y3-y4) - (y1-y2)*b) / d;
-    return r;
-}
-
 /* Procedural tiled floor/ceiling texture, sampled in WORLD coordinates so it
  * stays locked to the ground as you move (a checkerboard with grout lines). */
 static uint32_t plane_tex(uint32_t base, float wx, float wy){
@@ -247,31 +234,39 @@ static void render_world(void){
 
             if(tz1 <= 0 && tz2 <= 0) continue;          /* fully behind us     */
 
-            /* --- clip against the near plane / view frustum -------------- *
-             *  Frustum side slope is tan(FOV/2) = (W/2)/F. We find where the
-             *  wall crosses each frustum edge and snap the behind-camera end
-             *  to it, remapping its texture coordinate proportionally.       */
-            if(tz1 <= 0 || tz2 <= 0){
-                float nz = 0.0001f, fz = 256.0f;
-                float slope = (float)(W/2) / F;          /* near/far x extents */
-                vec2 il = intersect(tx1,tz1, tx2,tz2, -nz*slope,nz, -fz*slope,fz);
-                vec2 ir = intersect(tx1,tz1, tx2,tz2,  nz*slope,nz,  fz*slope,fz);
-                vec2 ip = (il.y > 0) ? il : ir;
-                /* fraction of the wall (by depth) at the clip point, so the
-                 * texture coordinate of the snapped endpoint stays correct */
-                float oz1 = tz1, oz2 = tz2;
-                float t = (oz2 != oz1) ? (ip.y - oz1) / (oz2 - oz1) : 0.0f;
-                if(t < 0) t = 0; if(t > 1) t = 1;
-                if(tz1 < nz){ u1 = 0.0f + wlen * t; tx1 = ip.x; tz1 = ip.y; }
-                if(tz2 < nz){ u2 = 0.0f + wlen * t; tx2 = ip.x; tz2 = ip.y; }
+            /* --- back-face cull by winding ------------------------------ *
+             *  A wall is front-facing (we see its inside) exactly when its
+             *  endpoints wind the right way around the camera. This cross
+             *  product test is what the old `x1 >= x2` check really meant —
+             *  but unlike screen x, the cross product stays valid even after
+             *  we slide an endpoint to the near plane just below, so it can't
+             *  be fooled into dropping a wall that straddles the camera.     */
+            float cross = tx1*tz2 - tx2*tz1;
+            if(cross <= 0) continue;
+
+            /* --- clip against the near plane ---------------------------- *
+             *  If an endpoint sits at/behind the eye, slide it forward along
+             *  the wall until tz == NEAR, remapping its texture coordinate.
+             *  Because we already know the wall faces us, the clipped end
+             *  projects far off-screen on the correct side (the draw range is
+             *  clamped to the sector's window below), so the left end still
+             *  stays left of the right end — no edge-guessing needed.        */
+            const float NEAR = 0.02f;
+            if(tz1 < NEAR){
+                float t = (NEAR - tz1) / (tz2 - tz1);
+                tx1 += (tx2 - tx1) * t; u1 += (u2 - u1) * t; tz1 = NEAR;
+            }
+            if(tz2 < NEAR){
+                float t = (NEAR - tz2) / (tz1 - tz2);
+                tx2 += (tx1 - tx2) * t; u2 += (u1 - u2) * t; tz2 = NEAR;
             }
 
             /* --- project to screen columns ------------------------------ *
-             *  Compact-renderer convention: screen_x = W/2 - tx*F/tz.       */
+             *  Compact-renderer convention: screen_x = W/2 - tx*F/tz.        */
             float xs1 = F / tz1, xs2 = F / tz2;
             int   x1  = (int)(W/2 - tx1 * xs1);
             int   x2  = (int)(W/2 - tx2 * xs2);
-            if(x1 >= x2) continue;                       /* back-face cull     */
+            if(x1 >= x2) continue;                       /* zero-width sliver  */
             if(x2 < now.sx1 || x1 > now.sx2) continue;   /* outside window     */
 
             /* heights of our floor/ceiling (relative to the eye) */

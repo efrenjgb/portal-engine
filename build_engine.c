@@ -143,13 +143,6 @@ static uint32_t tex_sample(uint32_t base, float u, float v){
     return shade(base, var);
 }
 
-/* Solid vertical span of one colour, clipped to the screen. */
-static void vspan(int x, int y0, int y1, uint32_t c){
-    if(x < 0 || x >= W) return;
-    if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
-    for(int y = y0; y <= y1; ++y) fb[y*W + x] = c;
-}
-
 /* Textured vertical span of a wall piece.
  *  [yTopf..yBotf] = the wall piece's full screen extent (used for v interp)
  *  [clipT..clipB] = the visible window we're allowed to draw into
@@ -180,6 +173,38 @@ static vec2 intersect(float x1,float y1,float x2,float y2,
     r.x = (a*(x3-x4) - (x1-x2)*b) / d;
     r.y = (a*(y3-y4) - (y1-y2)*b) / d;
     return r;
+}
+
+/* Procedural tiled floor/ceiling texture, sampled in WORLD coordinates so it
+ * stays locked to the ground as you move (a checkerboard with grout lines). */
+static uint32_t plane_tex(uint32_t base, float wx, float wy){
+    const float tile = 1.0f;                       /* one tile per world unit  */
+    float fu = wx/tile - floorf(wx/tile);
+    float fv = wy/tile - floorf(wy/tile);
+    if(fu < 0.04f || fv < 0.04f) return 0xFF1c1c1c;            /* grout lines   */
+    int checker = (((int)floorf(wx/tile)) + ((int)floorf(wy/tile))) & 1;
+    return shade(base, checker ? 1.0f : 0.80f);
+}
+
+/* Textured floor/ceiling fill — "floor casting", the dual of wall columns.
+ *  A floor/ceiling is a flat horizontal plane, so for a given screen ROW every
+ *  pixel sits at the same depth: distance depends only on how far the pixel is
+ *  from the horizon. We invert the projection to recover that depth tz, then
+ *  recover the column's lateral offset tx, then rotate back into world space
+ *  to get the (wx,wy) we should sample the texture at.                        */
+static void plane_span(int x, int y0, int y1, float pz, uint32_t base){
+    if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
+    float h = pz - P.z;                            /* plane height vs the eye   */
+    for(int y = y0; y <= y1; ++y){
+        /* invert  sy = H/2 - (h + tz*pitch)*F/tz  to solve for tz */
+        float denom = (H * 0.5f - y) - P.pitch * F;
+        float tz = h * F / denom;                  /* depth of this screen row  */
+        if(tz <= 0.0001f) continue;                /* wrong side of the horizon */
+        float tx = (W * 0.5f - x) * tz / F;        /* lateral offset, this col  */
+        float wx = P.x + P.vcos * tz + P.vsin * tx;   /* inverse of the camera  */
+        float wy = P.y + P.vsin * tz - P.vcos * tx;   /* rotation (M == M^-1)   */
+        fb[y*W + x] = shade(plane_tex(base, wx, wy), distfade(tz));
+    }
 }
 
 /* =========================================================================
@@ -285,9 +310,10 @@ static void render_world(void){
                 int cya = clampi((int)yaf, wt, wb);
                 int cyb = clampi((int)ybf, wt, wb);
 
-                /* ceiling above the wall, floor below it (flat-shaded) */
-                vspan(x, wt, cya-1, shade(sec->ceilcol , distfade(dep)));
-                vspan(x, cyb+1, wb, shade(sec->floorcol, distfade(dep)));
+                /* ceiling above the wall, floor below it — textured by
+                 * casting each pixel back to a world position (floor casting) */
+                plane_span(x, wt, cya-1, sec->ceil,  sec->ceilcol);
+                plane_span(x, cyb+1, wb, sec->floor, sec->floorcol);
 
                 if(nb < 0){
                     /* solid wall: textured top-to-bottom */

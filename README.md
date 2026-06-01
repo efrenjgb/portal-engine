@@ -29,7 +29,7 @@ Both are "2.5D": the world is fundamentally a 2D floor plan, and walls are alway
 vertical. That constraint is what makes the math cheap enough for a 1996 CPU —
 and what makes it a great thing to learn from.
 
-## The five techniques in this prototype
+## The six techniques in this prototype
 
 **1. Sectors & walls (`Sector` struct, the map data).**
 The world is just three polygons. Each has a `floor`/`ceil` height and a list of
@@ -68,13 +68,21 @@ Build fakes it: it adds `tz * pitch` to every projected height. Cheap, and it's
 exactly what Duke Nukem 3D did — which is why looking far up/down there always
 looked a little stretched.
 
-Distance shading (fog) and a procedural brick texture are thrown in so it reads
-as a room rather than flat colours.
+**6. Textured floors & ceilings via floor casting (`plane_span`).**
+Walls are drawn per *column*; floors and ceilings are the dual — drawn per
+*pixel* by inverse projection. A floor is a flat horizontal plane, so an entire
+screen row sits at one depth `tz` (distance from the camera depends only on how
+far the pixel is below the horizon). We invert the projection to get `tz`,
+recover the column's lateral offset `tx`, rotate back into world space to get
+`(wx, wy)`, and sample the texture there. Because we sample in world
+coordinates, the tiled floor stays locked to the ground as you move — the same
+idea as a Wolfenstein-style floor caster, fitted into the portal renderer.
+
+Distance shading (fog) and procedural textures (brick walls, tiled floors) are
+thrown in so it reads as a room rather than flat colours.
 
 ## Things deliberately left out (good next steps)
 
-- **Textured floors & ceilings.** Here they're flat-shaded. Real Build maps floors
-  with horizontal spans (the dual of wall columns) — a natural next exercise.
 - **Sub-dividing walls for partial-height doors / windows.** Right now portals are
   full-width openings.
 - **Sprites** (billboarded monsters/items), **sloped floors**, and **"sector over

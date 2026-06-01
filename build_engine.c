@@ -145,8 +145,8 @@ struct {
 } P = { 5.0f, 4.0f, 0.0f, (float)M_PI/2.0f, 0.0f, 1.0f, 0.0f, 0 };
 
 /* ------------------------------ framebuffer ----------------------------- */
-static uint32_t *fb;        /* W*H, 0xAARRGGBB                                */
-static float walldepth[W];  /* 1-D z-buffer: depth of the wall in each column */
+static uint32_t *fb;          /* W*H, 0xAARRGGBB                              */
+static float zbuf[W*H];       /* per-pixel depth of the nearest opaque surface */
 
 static uint32_t shade(uint32_t c, float f){
     if(f < 0) f = 0; if(f > 1) f = 1;
@@ -191,7 +191,8 @@ static void wall_span(int x, float yTopf, float yBotf, float vTop, float vBot,
         float fy = (y - yTopf) / span;             /* 0 at top, 1 at bottom   */
         float v  = vTop + (vBot - vTop) * fy;       /* world height (linear:   */
                                                     /* depth is const in a col)*/
-        fb[y*W + x] = shade(tex_sample(base, u, v), fade);
+        fb[y*W + x]   = shade(tex_sample(base, u, v), fade);
+        zbuf[y*W + x] = depth;                       /* for sprite occlusion    */
     }
 }
 
@@ -223,7 +224,8 @@ static void plane_span(int x, int y0, int y1, float pz, uint32_t base){
         float tx = (x - W * 0.5f) * tz / F;        /* invert screen_x = W/2+tx*F/tz */
         float wx = P.x + P.vcos * tz + P.vsin * tx;   /* inverse of the camera  */
         float wy = P.y + P.vsin * tz - P.vcos * tx;   /* rotation (M == M^-1)   */
-        fb[y*W + x] = shade(plane_tex(base, wx, wy), distfade(tz));
+        fb[y*W + x]   = shade(plane_tex(base, wx, wy), distfade(tz));
+        zbuf[y*W + x] = tz;                            /* for sprite occlusion   */
     }
 }
 
@@ -233,7 +235,8 @@ static void plane_span(int x, int y0, int y1, float pz, uint32_t base){
 static void render_world(void){
     static int ytop[W], ybot[W];           /* per-column open vertical window */
     int seen[NSECT];
-    for(int x = 0; x < W; ++x){ ytop[x] = 0; ybot[x] = H-1; walldepth[x] = 1e9f; }
+    for(int x = 0; x < W; ++x){ ytop[x] = 0; ybot[x] = H-1; }
+    for(int i = 0; i < W*H; ++i) zbuf[i] = 1e9f;     /* clear depth to "far"    */
     for(int i = 0; i < NSECT; ++i) seen[i] = 0;
 
     /* circular queue of sectors-to-draw, each with a screen window */
@@ -370,7 +373,6 @@ static void render_world(void){
                     /* solid wall: textured top-to-bottom */
                     wall_span(x, yaf, ybf, sec->ceil, sec->floor,
                               wt, wb, u, sec->wallcol, dep);
-                    walldepth[x] = dep;          /* this column's occluder depth */
                 } else {
                     float naf = n1a + (n2a - n1a) * t;   /* neighbour ceiling   */
                     float nbf = n1b + (n2b - n1b) * t;   /* neighbour floor     */
@@ -397,7 +399,7 @@ static void render_world(void){
 }
 
 /* =========================================================================
- *  SPRITES  —  camera-facing billboards, depth-tested against the wall buffer
+ *  SPRITES  —  camera-facing billboards, depth-tested per pixel against zbuf
  * =======================================================================*/
 /* Procedural barrel/drum texture. u,v in [0,1]; returns 0 (transparent) outside
  * the silhouette. The cylinder is shaded bright-in-the-middle with a few hoops. */
@@ -446,9 +448,9 @@ static void draw_sprites(void){
         float fade = distfade(tz);
 
         for(int x = maxi(x0,0); x <= mini(x1,W-1); ++x){
-            if(tz >= walldepth[x]) continue;        /* a wall is nearer here      */
             float uu = (x - x0) / (float)(x1 - x0);
             for(int y = maxi(yt,0); y <= mini(yb,H-1); ++y){
+                if(tz >= zbuf[y*W + x]) continue;   /* something opaque is nearer */
                 float vv = (y - yt) / (float)(yb - yt);
                 uint32_t c = sprite_tex(sp->col, uu, vv);
                 if(c) fb[y*W + x] = shade(c, fade);

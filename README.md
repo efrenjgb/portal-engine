@@ -94,15 +94,17 @@ collision check that lets you step through a doorway refuses it. A horizontal
 opening (the doorway/window gap *across* the wall) is made by splitting the
 wall into solid–portal–solid segments in the map data.
 
-**8. Sprites (billboards) with a 1-D depth buffer (`draw_sprites`).**
-Items/monsters are flat camera-facing billboards. While drawing walls we record
-each column's wall depth in `walldepth[x]`; then we project each sprite (same
-`tx`, `screen_x` and height-shear as a wall), sort them far-to-near, and for each
-column skip it if a wall is nearer. That's the Wolfenstein/raycaster sprite trick
-fitted to the portal renderer. Caveat: one depth per column can't represent
-partial-height occluders, so a sprite viewed through a far doorway can poke over
-the lintel — the "proper" fix is to draw sprites per-sector inside the flood,
-clipped to that sector's column window.
+**8. Sprites (billboards) with a per-pixel depth buffer (`draw_sprites`).**
+Items/monsters are flat camera-facing billboards. As walls, floors and ceilings
+are drawn they record their depth into `zbuf[x + y*W]` (one value per *pixel*).
+Each sprite is then projected (same `tx`, `screen_x` and height-shear as a wall),
+the sprites are sorted far-to-near, and each pixel is drawn only where the sprite
+is nearer than what's already in `zbuf`. Per-pixel depth (rather than one value
+per column) is what lets a lintel, a step or a floor correctly hide part of a
+sprite — e.g. a barrel seen through a far doorway is clipped to the opening
+instead of poking over the header. (The period-accurate Build/Doom alternative
+is to sort sprites and walls per sector and clip with per-column spans; a depth
+buffer is the simpler, more general way to the same result.)
 
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
 thrown in so it reads as a room rather than flat colours.

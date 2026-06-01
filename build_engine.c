@@ -62,16 +62,17 @@ static float minf(float a,float b){ return a<b?a:b; }
  *  vert[(s+1)%n]. neighbors[s] is the index of the sector on the far side of
  *  that wall, or -1 if the wall is solid.
  *
- *  Three sectors connected in a line by full-width doorway portals, each at a
- *  different floor/ceiling height so you can see (and walk up) the steps:
+ *  Three sectors connected in a line by wide doorway portals. The floors step
+ *  up while the ceilings stay level, so each doorway is a tall opening with a
+ *  low step at the bottom that you walk up:
  *
  *        y
- *        ^   +-----------+   sector 2  (floor 0.90, ceil 3.80)  — tall room
+ *        ^   +-----------+   sector 2  (floor 0.90, ceil 4.50)  — back room
  *        |   |           |
- *        |   |    .---.   |
- *        |   +----| 1 |---+   sector 1  (floor 0.45, ceil 2.50)  — low corridor
- *        |        '---'
- *        |   +----.   .---+   sector 0  (floor 0.00, ceil 3.00)  — start room
+ *        |   |   .-----.  |
+ *        |   +---|  1  |--+   sector 1  (floor 0.45, ceil 4.50)  — corridor
+ *        |       '-----'
+ *        |   +---.     .--+   sector 0  (floor 0.00, ceil 4.50)  — start room
  *        |   |           |
  *        |   +-----------+
  *        +-------------------> x
@@ -84,22 +85,25 @@ typedef struct {
     uint32_t floorcol, ceilcol, wallcol;  /* base colours                   */
 } Sector;
 
-/* sector 0 — start room (with a doorway gap in its north wall at x=3..7) */
-static vec2 s0v[] = {{0,0},{10,0},{10,8},{7,8},{3,8},{0,8}};
+/* sector 0 — start room (with a wide doorway gap in its north wall at x=2..8) */
+static vec2 s0v[] = {{0,0},{10,0},{10,8},{8,8},{2,8},{0,8}};
 static int  s0n[] = {  -1,    -1,    -1,    1,   -1,   -1};
 
-/* sector 1 — narrow corridor connecting the two rooms */
-static vec2 s1v[] = {{3,8},{7,8},{7,12},{3,12}};
+/* sector 1 — corridor connecting the two rooms */
+static vec2 s1v[] = {{2,8},{8,8},{8,12},{2,12}};
 static int  s1n[] = {   0,   -1,     2,    -1};
 
-/* sector 2 — tall back room (doorway gap in its south wall at x=3..7) */
-static vec2 s2v[] = {{0,12},{3,12},{7,12},{10,12},{10,20},{0,20}};
+/* sector 2 — back room (wide doorway gap in its south wall at x=2..8) */
+static vec2 s2v[] = {{0,12},{2,12},{8,12},{10,12},{10,20},{0,20}};
 static int  s2n[] = {   -1,     1,    -1,     -1,     -1,    -1};
 
+/* All ceilings share one high height, so doorway portals have no upper step
+ * and the openings are as tall as the rooms. Floors still step up, so you keep
+ * the lower step (and the walk-up) through each doorway. */
 static Sector sectors[] = {
-    { 0.00f, 3.00f, s0v, s0n, 6, 0xFF243447, 0xFF1b2230, 0xFF6f7d8c },
-    { 0.45f, 2.50f, s1v, s1n, 4, 0xFF3a2d22, 0xFF241c15, 0xFF9c7b52 },
-    { 0.90f, 3.80f, s2v, s2n, 6, 0xFF203a2a, 0xFF14241a, 0xFF5f9c74 },
+    { 0.00f, 4.50f, s0v, s0n, 6, 0xFF243447, 0xFF1b2230, 0xFF6f7d8c },
+    { 0.45f, 4.50f, s1v, s1n, 4, 0xFF3a2d22, 0xFF241c15, 0xFF9c7b52 },
+    { 0.90f, 4.50f, s2v, s2n, 6, 0xFF203a2a, 0xFF14241a, 0xFF5f9c74 },
 };
 #define NSECT ((int)(sizeof(sectors)/sizeof(sectors[0])))
 

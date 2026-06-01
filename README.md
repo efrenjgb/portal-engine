@@ -36,7 +36,7 @@ The world is just three polygons. Each has a `floor`/`ceil` height and a list of
 vertices in counter-clockwise order. Wall `s` is the edge from `vert[s]` to
 `vert[s+1]`. `neigh[s]` says which sector is on the other side of that wall, or
 `-1` if it's solid. A "doorway" is made by splitting a wall into solid–portal–solid
-segments (see how sector 0's north wall has a gap at x = 3..7).
+segments (see how sector 0's north wall has a gap at x = 2..8).
 
 **2. The portal flood (`render_world`).**
 A queue holds *(sector, screen-column-window)* jobs. We start with the player's

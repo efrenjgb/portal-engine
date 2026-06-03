@@ -32,6 +32,7 @@
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <stdint.h>
 
@@ -59,33 +60,17 @@ static float maxf(float a,float b){ return a>b?a:b; }
 static float minf(float a,float b){ return a<b?a:b; }
 
 /* ------------------------------- the map -------------------------------- *
+ *  The world is loaded from a text file at startup (see load_map and map.txt).
  *  Each sector is a CCW loop of vertices. Wall s runs from vert[s] to
- *  vert[(s+1)%n]. neighbors[s] is the index of the sector on the far side of
- *  that wall, or -1 if the wall is solid.
- *
- *  A portal's OPENING runs from max(floorA,floorB) at the bottom to
- *  min(ceilA,ceilB) at the top; whatever is left over is drawn as solid wall —
- *  a "step"/riser below and a "header"/lintel above. Choosing the neighbour's
- *  floor and ceiling is therefore all it takes to make doorways, low lintels
- *  and windows:
- *
- *    - the corridor (S1) has a LOW ceiling, so each doorway gets a header
- *      above the opening (and a small riser below);
- *    - a WINDOW in S0's east wall opens into a small alcove (S3) whose floor is
- *      a high sill and whose ceiling is a low header, leaving a mid-height band
- *      you can see through. Its sill is taller than MAX_STEP, so the same step
- *      check that lets you walk through doorways refuses the window.
- *
- *        y
- *        ^   +-----------+        S2 back room   floor 0.90  ceil 4.50
- *        |   |           |
- *        |   +--[ S1 ]---+        S1 corridor    floor 0.45  ceil 2.60 (low!)
- *        |   |           |
- *        |   |  S0    [W]|=S3     S0 start room  floor 0.00  ceil 4.50
- *        |   |           |        S3 alcove      floor 1.20  ceil 2.60  (window)
- *        |   +-----------+
- *        +----------------------> x
- */
+ *  vert[(s+1)%n]. neigh[s] is the index of the sector on the far side of that
+ *  wall, or -1 if the wall is solid. A portal's opening runs from
+ *  max(floorA,floorB) at the bottom to min(ceilA,ceilB) at the top; the leftover
+ *  is solid wall (a riser below, a header above) — so floor/ceiling heights are
+ *  all it takes to make doorways, lintels and windows. */
+#define MAXSECT 256
+#define MAXVERT 64
+#define MAXSPR  256
+
 typedef struct {
     float    floor, ceil;     /* heights, world units (z up)                */
     vec2    *vert;            /* npoints vertices, CCW                       */
@@ -94,46 +79,18 @@ typedef struct {
     uint32_t floorcol, ceilcol, wallcol;  /* base colours                   */
 } Sector;
 
-/* sector 0 — start room. North wall has a doorway gap (x=2..8 -> S1); east wall
- * has a window gap (y=3..6 -> alcove S3). */
-static vec2 s0v[] = {{0,0},{10,0},{10,3},{10,6},{10,8},{8,8},{2,8},{0,8}};
-static int  s0n[] = {  -1,    -1,    3,     -1,    -1,    1,   -1,   -1};
-
-/* sector 1 — corridor (low ceiling -> header over both doorways) */
-static vec2 s1v[] = {{2,8},{8,8},{8,12},{2,12}};
-static int  s1n[] = {   0,   -1,     2,    -1};
-
-/* sector 2 — back room (doorway gap in its south wall at x=2..8) */
-static vec2 s2v[] = {{0,12},{2,12},{8,12},{10,12},{10,20},{0,20}};
-static int  s2n[] = {   -1,     1,    -1,     -1,     -1,    -1};
-
-/* sector 3 — small alcove behind the window (high sill floor, low ceiling) */
-static vec2 s3v[] = {{10,3},{12,3},{12,6},{10,6}};
-static int  s3n[] = {   -1,    -1,    -1,    0};
-
-static Sector sectors[] = {
-    { 0.00f, 4.50f, s0v, s0n, 8, 0xFF243447, 0xFF1b2230, 0xFF6f7d8c },
-    { 0.45f, 2.60f, s1v, s1n, 4, 0xFF3a2d22, 0xFF241c15, 0xFF9c7b52 },
-    { 0.90f, 4.50f, s2v, s2n, 6, 0xFF203a2a, 0xFF14241a, 0xFF5f9c74 },
-    { 1.20f, 2.60f, s3v, s3n, 4, 0xFF4a4630, 0xFF2a2818, 0xFFc8b050 },
-};
-#define NSECT ((int)(sizeof(sectors)/sizeof(sectors[0])))
-
-/* ------------------------------- sprites -------------------------------- *
- *  Flat camera-facing billboards. z is the height of the feet (sit them on
- *  their sector's floor); radius is half the on-screen width in world units. */
+/* Flat camera-facing billboards. z is the height of the feet (sit them on the
+ * floor); radius is half the on-screen width in world units. */
 typedef struct {
     float    x, y, z;
     float    radius, height;
     uint32_t col;
 } Sprite;
-static Sprite sprites[] = {
-    { 3.0f,  3.0f, 0.00f, 0.35f, 1.10f, 0xFF9a6a30 },   /* barrel, start room  */
-    { 7.5f,  6.0f, 0.00f, 0.35f, 1.10f, 0xFF7a8a40 },   /* barrel, start room  */
-    { 3.5f, 16.5f, 0.90f, 0.40f, 1.40f, 0xFFa84038 },   /* drum, back room     */
-    { 6.5f, 14.5f, 0.90f, 0.35f, 1.10f, 0xFF4060a0 },   /* drum, back room     */
-};
-#define NSPR ((int)(sizeof(sprites)/sizeof(sprites[0])))
+
+static Sector sectors[MAXSECT];   static int nsectors = 0;
+static Sprite sprites[MAXSPR];    static int nsprites = 0;
+static vec2   vert_buf [MAXSECT][MAXVERT];   /* backing storage for sector verts  */
+static int    neigh_buf[MAXSECT][MAXVERT];
 
 /* ------------------------------- the player ----------------------------- */
 struct {
@@ -236,10 +193,10 @@ static void plane_span(int x, int y0, int y1, float pz, uint32_t base){
  * =======================================================================*/
 static void render_world(void){
     static int ytop[W], ybot[W];           /* per-column open vertical window */
-    int seen[NSECT];
+    int seen[MAXSECT];
     for(int x = 0; x < W; ++x){ ytop[x] = 0; ybot[x] = H-1; }
     for(int i = 0; i < W*H; ++i) zbuf[i] = 1e9f;     /* clear depth to "far"    */
-    for(int i = 0; i < NSECT; ++i) seen[i] = 0;
+    for(int i = 0; i < nsectors; ++i) seen[i] = 0;
 
     /* circular queue of sectors-to-draw, each with a screen window */
     typedef struct { int sect, sx1, sx2; } Item;
@@ -418,19 +375,19 @@ static uint32_t sprite_tex(uint32_t base, float u, float v){
 
 static void draw_sprites(void){
     /* depth-sort indices, far to near, so nearer sprites paint over farther */
-    int order[NSPR]; float depth[NSPR];
-    for(int i = 0; i < NSPR; ++i){
+    int order[MAXSPR]; float depth[MAXSPR];
+    for(int i = 0; i < nsprites; ++i){
         float rx = sprites[i].x - P.x, ry = sprites[i].y - P.y;
         depth[i] = rx*P.vcos + ry*P.vsin;          /* tz                         */
         order[i] = i;
     }
-    for(int i = 1; i < NSPR; ++i){                  /* insertion sort by depth desc */
+    for(int i = 1; i < nsprites; ++i){              /* insertion sort by depth desc */
         int k = order[i]; float d = depth[k]; int j = i-1;
         while(j >= 0 && depth[order[j]] < d){ order[j+1] = order[j]; --j; }
         order[j+1] = k;
     }
 
-    for(int o = 0; o < NSPR; ++o){
+    for(int o = 0; o < nsprites; ++o){
         Sprite *sp = &sprites[order[o]];
         float rx = sp->x - P.x, ry = sp->y - P.y;
         float tz = rx*P.vcos + ry*P.vsin;          /* depth (forward)            */
@@ -474,7 +431,7 @@ static void draw_minimap(void){
     const float sc = 7.0f; const int ox = 14, oy = 14, maxy = 20;
     #define MX(wx) (ox + (int)((wx)*sc))
     #define MY(wy) (oy + (int)((maxy-(wy))*sc))    /* flip so north is up */
-    for(int i = 0; i < NSECT; ++i){
+    for(int i = 0; i < nsectors; ++i){
         Sector *s = &sectors[i];
         for(int w = 0; w < s->npoints; ++w){
             vec2 a = s->vert[w], b = s->vert[(w+1)%s->npoints];
@@ -483,7 +440,7 @@ static void draw_minimap(void){
             line2d(MX(a.x), MY(a.y), MX(b.x), MY(b.y), c);
         }
     }
-    for(int i = 0; i < NSPR; ++i){                  /* sprites as small dots */
+    for(int i = 0; i < nsprites; ++i){              /* sprites as small dots */
         int sx = MX(sprites[i].x), sy = MY(sprites[i].y);
         for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(sx+dx,sy+dy, sprites[i].col);
     }
@@ -575,7 +532,7 @@ static void keep_inside(void){
  * pit wouldn't block. */
 static void collide_sprites(void){
     float feet = sectors[P.sector].floor, head = feet + BODY;
-    for(int i = 0; i < NSPR; ++i){
+    for(int i = 0; i < nsprites; ++i){
         Sprite *s = &sprites[i];
         if(s->z + s->height < feet || s->z > head) continue;   /* no height overlap */
         float dx = P.x - s->x, dy = P.y - s->y;
@@ -617,9 +574,85 @@ static int pick_sector(void){
 }
 
 /* =========================================================================
+ *  map file loader  (plain text — see map.txt)
+ *    player <x> <y> <sector> <angle_deg>
+ *    sector <floor> <ceil> <floorcol> <ceilcol> <wallcol>   (colours RRGGBB hex)
+ *      wall <x> <y> <neighbour>     one per vertex; -1 = solid wall
+ *    sprite <x> <y> <z> <radius> <height> <col>
+ *  '#' begins a comment; blank lines are ignored.
+ * =======================================================================*/
+static int load_map(const char *path){
+    FILE *f = fopen(path, "r");
+    if(!f){ fprintf(stderr, "cannot open map '%s'\n", path); return 0; }
+    char line[256];
+    int cur = -1, have_player = 0, ln = 0;
+    nsectors = nsprites = 0;
+    while(fgets(line, sizeof line, f)){
+        ln++;
+        char *p = line; while(*p == ' ' || *p == '\t') ++p;
+        if(*p == '#' || *p == '\n' || *p == '\r' || *p == 0) continue;
+        char kw[16];
+        if(sscanf(p, "%15s", kw) != 1) continue;
+
+        if(!strcmp(kw, "player")){
+            float x, y, a; int s;
+            if(sscanf(p, "%*s %f %f %d %f", &x, &y, &s, &a) != 4) goto bad;
+            P.x = x; P.y = y; P.sector = s; P.angle = a * (float)M_PI / 180.0f;
+            have_player = 1;
+        } else if(!strcmp(kw, "sector")){
+            if(nsectors >= MAXSECT){ fprintf(stderr, "map: too many sectors\n"); goto fail; }
+            float fl, ce; unsigned fc, cc, wc;
+            if(sscanf(p, "%*s %f %f %x %x %x", &fl, &ce, &fc, &cc, &wc) != 5) goto bad;
+            cur = nsectors++;
+            Sector *S = &sectors[cur];
+            S->floor = fl; S->ceil = ce; S->npoints = 0;
+            S->vert = vert_buf[cur]; S->neigh = neigh_buf[cur];
+            S->floorcol = 0xFF000000u|fc; S->ceilcol = 0xFF000000u|cc; S->wallcol = 0xFF000000u|wc;
+        } else if(!strcmp(kw, "wall")){
+            if(cur < 0){ fprintf(stderr, "map:%d wall before sector\n", ln); goto fail; }
+            Sector *S = &sectors[cur];
+            if(S->npoints >= MAXVERT){ fprintf(stderr, "map: too many verts\n"); goto fail; }
+            float x, y; int nb;
+            if(sscanf(p, "%*s %f %f %d", &x, &y, &nb) != 3) goto bad;
+            S->vert[S->npoints].x = x; S->vert[S->npoints].y = y;
+            S->neigh[S->npoints] = nb; S->npoints++;
+        } else if(!strcmp(kw, "sprite")){
+            if(nsprites >= MAXSPR){ fprintf(stderr, "map: too many sprites\n"); goto fail; }
+            float x, y, z, r, h; unsigned col;
+            if(sscanf(p, "%*s %f %f %f %f %f %x", &x, &y, &z, &r, &h, &col) != 6) goto bad;
+            Sprite *S = &sprites[nsprites++];
+            S->x = x; S->y = y; S->z = z; S->radius = r; S->height = h; S->col = 0xFF000000u|col;
+        } else {
+            fprintf(stderr, "map:%d unknown keyword '%s'\n", ln, kw);
+        }
+        continue;
+    bad:
+        fprintf(stderr, "map:%d malformed '%s' line\n", ln, kw); goto fail;
+    }
+    fclose(f);
+    if(nsectors == 0){ fprintf(stderr, "map: no sectors defined\n"); return 0; }
+    for(int i = 0; i < nsectors; ++i)               /* validate neighbour links */
+        for(int w = 0; w < sectors[i].npoints; ++w)
+            if(sectors[i].neigh[w] >= nsectors){
+                fprintf(stderr, "map: sector %d wall %d -> bad neighbour %d\n",
+                        i, w, sectors[i].neigh[w]); return 0;
+            }
+    if(!have_player || P.sector < 0 || P.sector >= nsectors) P.sector = 0;
+    P.z = sectors[P.sector].floor + EYE;
+    P.vsin = sinf(P.angle); P.vcos = cosf(P.angle);
+    printf("loaded '%s': %d sectors, %d sprites\n", path, nsectors, nsprites);
+    return 1;
+fail:
+    fclose(f);
+    return 0;
+}
+
+/* =========================================================================
  *  main loop
  * =======================================================================*/
-int main(void){
+int main(int argc, char **argv){
+    const char *mappath = (argc > 1) ? argv[1] : "map.txt";
+    if(!load_map(mappath)) return 1;
     F = (W / 2.0f) / tanf(FOV_H * 0.5f);
 
     if(SDL_Init(SDL_INIT_VIDEO) != 0){

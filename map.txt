@@ -1,0 +1,68 @@
+# ============================================================================
+#  Build-style engine map file
+# ----------------------------------------------------------------------------
+#  Records (one per line, '#' starts a comment, blank lines ignored):
+#
+#    player <x> <y> <sector> <angle_deg>
+#    sector <floor> <ceil> <floorcol> <ceilcol> <wallcol>   colours = RRGGBB hex
+#      wall <x> <y> <neighbour>     one per vertex, in CCW order;
+#                                   neighbour = sector on the far side, -1 = solid
+#    sprite <x> <y> <z> <radius> <height> <col>             z = feet height
+#
+#  A wall runs from its vertex to the next vertex of the same sector. A portal
+#  (neighbour >= 0) opens from max(floorA,floorB) up to min(ceilA,ceilB); the
+#  rest is solid (a riser below, a header above). So heights alone make
+#  doorways, lintels and windows.
+#
+#        y
+#        ^   +-----------+        sector 2  back room   floor 0.90  ceil 4.50
+#        |   |           |
+#        |   +--[ sec1 ]-+        sector 1  corridor    floor 0.45  ceil 2.60
+#        |   |           |
+#        |   | sec0   [W]|=sec3   sector 0  start room  floor 0.00  ceil 4.50
+#        |   |           |        sector 3  alcove      floor 1.20  ceil 2.60
+#        |   +-----------+                              (seen through the window)
+#        +----------------------> x
+# ============================================================================
+
+player 5 4 0 90
+
+# --- sector 0: start room (doorway gap x=2..8 -> sec1; window gap y=3..6 -> sec3)
+sector 0.0 4.5 243447 1b2230 6f7d8c
+  wall  0 0   -1
+  wall 10 0   -1
+  wall 10 3    3
+  wall 10 6   -1
+  wall 10 8   -1
+  wall  8 8    1
+  wall  2 8   -1
+  wall  0 8   -1
+
+# --- sector 1: corridor (low ceiling -> header over both doorways)
+sector 0.45 2.6 3a2d22 241c15 9c7b52
+  wall 2 8     0
+  wall 8 8    -1
+  wall 8 12    2
+  wall 2 12   -1
+
+# --- sector 2: back room (doorway gap x=2..8 -> sec1)
+sector 0.9 4.5 203a2a 14241a 5f9c74
+  wall  0 12  -1
+  wall  2 12   1
+  wall  8 12  -1
+  wall 10 12  -1
+  wall 10 20  -1
+  wall  0 20  -1
+
+# --- sector 3: small alcove behind the window (high sill, low ceiling)
+sector 1.2 2.6 4a4630 2a2818 c8b050
+  wall 10 3   -1
+  wall 12 3   -1
+  wall 12 6   -1
+  wall 10 6    0
+
+# --- props
+sprite 3.0  3.0  0.0  0.35 1.1 9a6a30
+sprite 7.5  6.0  0.0  0.35 1.1 7a8a40
+sprite 3.5 16.5  0.9  0.40 1.4 a84038
+sprite 6.5 14.5  0.9  0.35 1.1 4060a0

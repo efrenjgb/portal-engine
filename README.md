@@ -7,7 +7,13 @@ walls, and a portal flood**, with no BSP tree.
 ```sh
 make run                 # builds (c++ -std=c++17, sdl2-config) and launches map.txt
 ./build_engine [mapfile] # defaults to ./map.txt
+make play                # stripped build: no editor, no pick buffer (-DEDITOR=0)
 ```
+
+The default build includes the in-engine editor and its per-pixel pick buffer.
+`make play` compiles with `-DEDITOR=0`, which `#if`-strips the editor input and
+the pick buffer entirely (saving ~2.25 MB and a per-pixel write) — a lean
+"runtime" binary. Run plain `make` afterwards to get the editor build back.
 
 The world is read from a **text map file** (`map.txt`) at startup, so you can
 edit the level without touching the code. See the comments at the top of `map.txt`

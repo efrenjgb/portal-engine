@@ -14,7 +14,7 @@ int main(int argc, char** argv){
     auto loaded = loadMap(mapPath);
     if(!loaded) return 1;
     Map map = std::move(*loaded);
-    std::string savePath = mapPath + ".save";
+    [[maybe_unused]] std::string savePath = mapPath + ".save";   // used by the editor
 
     Player player;
     player.sector    = map.startSector;
@@ -37,19 +37,22 @@ int main(int argc, char** argv){
 
     Renderer renderer;
 
-    printf("\n  Build-style portal engine (C++)\n"
+    printf("\n  Build-style portal engine (C++)%s\n"
              "  -------------------------------\n"
              "   WASD / arrows : move & strafe\n"
              "   mouse         : look (turn + pitch)\n"
              "   Q / E         : turn left / right\n"
              "   R / F         : look up / down\n"
-             "   M             : release / recapture mouse\n"
-             "   Tab           : toggle height-edit mode\n"
+             "   M             : release / recapture mouse\n",
+             EDITOR ? "" : "  [play build]");
+#if EDITOR
+    printf("   Tab           : toggle height-edit mode\n"
              "     T / G       :   raise / lower FLOOR   of aimed sector\n"
              "     Y / H       :   raise / lower CEILING of aimed sector\n"
              "   P             : set player start to current position\n"
-             "   K             : save edited map (to <mapfile>.save)\n"
-             "   Esc           : quit\n\n");
+             "   K             : save edited map (to <mapfile>.save)\n");
+#endif
+    printf("   Esc           : quit\n\n");
 
     bool running = true, mouseGrabbed = true, editMode = false;
     Uint32 prev = SDL_GetTicks();
@@ -66,6 +69,7 @@ int main(int argc, char** argv){
                 if(k == SDLK_ESCAPE) running = false;
                 if(k == SDLK_m){ mouseGrabbed = !mouseGrabbed;
                                  SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE); }
+#if EDITOR
                 if(k == SDLK_TAB) editMode = !editMode;
                 if(k == SDLK_k)   saveMap(map, savePath);
                 if(k == SDLK_p){
@@ -76,6 +80,7 @@ int main(int argc, char** argv){
                            map.playerStart.x, map.playerStart.y, map.startSector,
                            map.startAngle * 180.0f / PI_F);
                 }
+#endif
             }
         }
 
@@ -110,10 +115,10 @@ int main(int argc, char** argv){
         player.collideSprites(map);
         player.keepInside(map);
 
-        // ---- what's under the crosshair (from last frame's pick buffer) ----
-        SurfaceRef aim = renderer.pickAt(W/2, H/2);
-
-        // ---- height editor: acts on the aimed surface's sector ----
+        // ---- what's under the crosshair + the height editor (editor builds) ----
+        SurfaceRef aim;                       // stays None in a play build
+#if EDITOR
+        aim = renderer.pickAt(W/2, H/2);      // from last frame's pick buffer
         if(editMode && aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
             Sector& t = map.sectors[aim.sector];
             float rate = 2.0f * dt;
@@ -131,6 +136,7 @@ int main(int argc, char** argv){
             else if(aim.kind == SurfaceRef::Ceiling) printf("aim: sector %d CEILING\n", aim.sector);
             lastK = (int)aim.kind; lastS = aim.sector; lastW = aim.wall;
         }
+#endif
 
         player.settleEyeHeight(map, dt);
 

@@ -47,7 +47,11 @@ static inline uint32_t packSurf(int sector, int kind, int wall){
 // ---- Renderer --------------------------------------------------------------
 Renderer::Renderer()
     : F_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
-      fb_(W*H), zbuf_(W*H), pickbuf_(W*H), ytop_(W), ybot_(W) {}
+      fb_(W*H), zbuf_(W*H),
+#if EDITOR
+      pickbuf_(W*H),
+#endif
+      ytop_(W), ybot_(W) {}
 
 void Renderer::clear(uint32_t bg){ std::fill(fb_.begin(), fb_.end(), bg); }
 
@@ -61,7 +65,8 @@ void Renderer::line2d(int x0, int y0, int x1, int y1, uint32_t c){
 }
 
 void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
-                        int clipT, int clipB, float u, uint32_t base, float depth, uint32_t surf){
+                        int clipT, int clipB, float u, uint32_t base, float depth,
+                        [[maybe_unused]] uint32_t surf){
     int y0 = std::max((int)yTopf, clipT);
     int y1 = std::min((int)yBotf, clipB);
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
@@ -72,11 +77,14 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
         float v  = vTop + (vBot - vTop) * fy;
         fb_[y*W + x]      = shade(texSample(base, u, v), fade);
         zbuf_[y*W + x]    = depth;
+#if EDITOR
         pickbuf_[y*W + x] = surf;
+#endif
     }
 }
 
-void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base, uint32_t surf){
+void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base,
+                         [[maybe_unused]] uint32_t surf){
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float h = pz - P.z;
     for(int y = y0; y <= y1; ++y){
@@ -88,14 +96,18 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float wy = P.y + P.vsin * tz - P.vcos * tx;
         fb_[y*W + x]      = shade(planeTex(base, wx, wy), distFade(tz));
         zbuf_[y*W + x]    = tz;
+#if EDITOR
         pickbuf_[y*W + x] = surf;
+#endif
     }
 }
 
 void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
     for(int x = 0; x < W; ++x){ ytop_[x] = 0; ybot_[x] = H-1; }
     std::fill(zbuf_.begin(), zbuf_.end(), 1e9f);
+#if EDITOR
     std::fill(pickbuf_.begin(), pickbuf_.end(), 0u);
+#endif
     std::vector<char> seen(map.sectors.size(), 0);
 
     struct Item { int sect, sx1, sx2; };
@@ -287,6 +299,7 @@ void Renderer::crosshair(uint32_t col){
     for(int i = -5; i <= 5; ++i){ putpx(W/2+i, H/2, col); putpx(W/2, H/2+i, col); }
 }
 
+#if EDITOR
 SurfaceRef Renderer::pickAt(int x, int y) const {
     SurfaceRef r;
     if(x < 0 || x >= W || y < 0 || y >= H) return r;
@@ -298,3 +311,4 @@ SurfaceRef Renderer::pickAt(int x, int y) const {
     r.sector = (int)(s & 0xFFFF);
     return r;
 }
+#endif

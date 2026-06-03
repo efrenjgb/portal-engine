@@ -28,9 +28,11 @@ public:
                      Vec2 start, float startAngle);
     void crosshair(uint32_t col);
 
+#if EDITOR
     // What surface did the last renderWorld draw at this pixel? (kind==None if
     // nothing / background). Decoded from the per-pixel pick buffer.
     SurfaceRef pickAt(int x, int y) const;
+#endif
 
     const uint32_t* pixels() const { return fb_.data(); }
 
@@ -38,7 +40,9 @@ private:
     float F_;                          // focal length in pixels
     std::vector<uint32_t> fb_;         // W*H colour buffer
     std::vector<float>    zbuf_;       // W*H depth buffer
-    std::vector<uint32_t> pickbuf_;    // W*H packed surface IDs
+#if EDITOR
+    std::vector<uint32_t> pickbuf_;    // W*H packed surface IDs (editor only)
+#endif
     std::vector<int>      ytop_, ybot_;// per-column open vertical window
 
     void putpx(int x, int y, uint32_t c);

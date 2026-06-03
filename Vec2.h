@@ -3,6 +3,12 @@
 #include <cstdint>
 #include <cmath>
 
+// Compile-time switch: 1 includes the in-engine editor + the per-pixel pick
+// buffer; 0 (a "play" build, `make play`) strips both. Defaults to on.
+#ifndef EDITOR
+#define EDITOR 1
+#endif
+
 constexpr float PI_F = 3.14159265358979323846f;
 
 struct Vec2 { float x = 0, y = 0; };

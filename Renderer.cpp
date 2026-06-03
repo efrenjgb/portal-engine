@@ -175,9 +175,8 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             if(fx1 > fx2){                                    // front faces come out R-to-L
                 std::swap(fx1, fx2); std::swap(tz1, tz2); std::swap(xs1, xs2); std::swap(u1, u2);
             }
-            int x1 = (int)fx1, x2 = (int)fx2;
-            if(x1 >= x2) continue;
-            if(x2 < now.sx1 || x1 > now.sx2) continue;
+            if(fx1 >= fx2) continue;                          // zero-width / back-face
+            if(fx2 < now.sx1 || fx1 > now.sx2) continue;      // outside the window
 
             float yc = sec.ceil  - P.z;
             float yf = sec.floor - P.z;
@@ -194,7 +193,29 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             float iz1 = 1.0f/tz1, iz2 = 1.0f/tz2;
             float uoz1 = u1*iz1, uoz2 = u2*iz2;
 
-            int beginx = std::max(x1, now.sx1), endx = std::min(x2, now.sx2);
+            // Clip the projected span to the screen window. 1/z, u/z and the
+            // vertical screen edges are all linear in screen-x, so the endpoints
+            // can be interpolated to the window edges exactly. This keeps the
+            // interpolation anchor (fx1) on-screen: a grazing wall whose far
+            // corner projects to x = millions would otherwise lose float
+            // precision there and make the texture jitter as the camera turns.
+            float L = (float)now.sx1, R = (float)now.sx2;
+            if(fx1 < L){
+                float f = (L - fx1) / (fx2 - fx1);
+                iz1 += (iz2-iz1)*f; uoz1 += (uoz2-uoz1)*f;
+                y1a += (y2a-y1a)*f; y1b += (y2b-y1b)*f;
+                n1a += (n2a-n1a)*f; n1b += (n2b-n1b)*f;
+                fx1 = L;
+            }
+            if(fx2 > R){
+                float f = (R - fx2) / (fx1 - fx2);
+                iz2 += (iz1-iz2)*f; uoz2 += (uoz1-uoz2)*f;
+                y2a += (y1a-y2a)*f; y2b += (y1b-y2b)*f;
+                n2a += (n1a-n2a)*f; n2b += (n1b-n2b)*f;
+                fx2 = R;
+            }
+
+            int beginx = std::max((int)fx1, now.sx1), endx = std::min((int)fx2, now.sx2);
             float invspan = 1.0f / (fx2 - fx1);              // float span: subpixel-correct
 
             for(int x = beginx; x <= endx; ++x){

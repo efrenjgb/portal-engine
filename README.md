@@ -35,7 +35,7 @@ The renderer only touches a pixel buffer, never SDL, so it could be unit-tested
 headlessly. (Originally this was a single C file; see the git history.)
 
 **Controls:** `WASD`/arrows move & strafe · mouse looks (turn + pitch) ·
-`Q`/`E` turn · `R`/`F` pitch · `M` release mouse · `Esc` quit.
+`Q`/`E` turn · `R`/`F` pitch · `Space` jump · `M` release mouse · `Esc` quit.
 `Tab` toggles **edit mode**, which acts on the surface under the crosshair:
 `T`/`G` raise/lower the sector *floor*, `Y`/`H` the *ceiling*; `[`/`]` shrink/grow
 the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, and `N` cycles

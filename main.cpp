@@ -53,6 +53,7 @@ int main(int argc, char** argv){
              "   mouse         : look (turn + pitch)\n"
              "   Q / E         : turn left / right\n"
              "   R / F         : look up / down\n"
+             "   Space         : jump\n"
              "   M             : release / recapture mouse\n",
              EDITOR ? "" : "  [play build]");
 #if EDITOR
@@ -81,6 +82,7 @@ int main(int argc, char** argv){
             } else if(e.type == SDL_KEYDOWN){
                 SDL_Keycode k = e.key.keysym.sym;
                 if(k == SDLK_ESCAPE) running = false;
+                if(k == SDLK_SPACE)  player.jump();
                 if(k == SDLK_m){ mouseGrabbed = !mouseGrabbed;
                                  SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE); }
 #if EDITOR

@@ -104,7 +104,20 @@ int Player::pickSector(const Map& map) const {
     return sec;
 }
 
+void Player::jump(){
+    if(onGround){ zvel = JUMP_VEL; onGround = false; }
+}
+
 void Player::settleEyeHeight(const Map& map, float dt){
-    float ground = map.sectors[sector].floor + EYE;
-    cam.z += (ground - cam.z) * std::min(1.0f, dt * 12.0f);
+    float groundEye = map.sectors[sector].floor + EYE;
+    if(onGround && zvel == 0.0f){
+        // standing/walking: ease the eye to the floor (smooth over steps)
+        cam.z += (groundEye - cam.z) * std::min(1.0f, dt * 12.0f);
+    } else {
+        // airborne: integrate gravity, land on the floor
+        zvel -= GRAVITY * dt;
+        cam.z += zvel * dt;
+        if(cam.z <= groundEye){ cam.z = groundEye; zvel = 0.0f; onGround = true; }
+        else onGround = false;
+    }
 }

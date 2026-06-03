@@ -165,13 +165,17 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 }
             }
 
-            // project: screen_x = W/2 + tx*F/tz (not mirrored)
+            // project: screen_x = W/2 + tx*F/tz (not mirrored). Keep the edges as
+            // floats (fx1/fx2) so texture/height interpolation can be sampled at
+            // the exact pixel centre — without this, the integer-rounded edge
+            // makes textures swim/jitter on grazing-angle walls as you move.
             float xs1 = F_ / tz1, xs2 = F_ / tz2;
-            int   x1  = (int)(W/2 + tx1 * xs1);
-            int   x2  = (int)(W/2 + tx2 * xs2);
-            if(x1 > x2){                                      // front faces come out R-to-L
-                std::swap(x1, x2); std::swap(tz1, tz2); std::swap(xs1, xs2); std::swap(u1, u2);
+            float fx1 = W * 0.5f + tx1 * xs1;
+            float fx2 = W * 0.5f + tx2 * xs2;
+            if(fx1 > fx2){                                    // front faces come out R-to-L
+                std::swap(fx1, fx2); std::swap(tz1, tz2); std::swap(xs1, xs2); std::swap(u1, u2);
             }
+            int x1 = (int)fx1, x2 = (int)fx2;
             if(x1 >= x2) continue;
             if(x2 < now.sx1 || x1 > now.sx2) continue;
 
@@ -191,10 +195,10 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             float uoz1 = u1*iz1, uoz2 = u2*iz2;
 
             int beginx = std::max(x1, now.sx1), endx = std::min(x2, now.sx2);
-            float invspan = 1.0f / (float)(x2 - x1);
+            float invspan = 1.0f / (fx2 - fx1);              // float span: subpixel-correct
 
             for(int x = beginx; x <= endx; ++x){
-                float t   = (x - x1) * invspan;
+                float t   = (x + 0.5f - fx1) * invspan;      // pixel centre vs true edge
                 float iz  = iz1 + (iz2 - iz1) * t;
                 float dep = 1.0f / iz;
                 float u   = (uoz1 + (uoz2 - uoz1) * t) / iz;

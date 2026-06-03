@@ -153,14 +153,17 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             float cross = tx1*tz2 - tx2*tz1;                 // back-face cull
             if(cross <= 0) continue;
 
-            // Near-plane clip: slide an endpoint that is at/behind the eye up to
-            // tz == NEARZ along the wall. If BOTH are nearer than the plane (you
-            // are right up against a portal) just clamp them — there's nothing to
-            // slide to. NEARZ must be large enough that 1/tz and the projected x
-            // stay numerically sane: a tiny near plane makes a grazing wall's far
-            // corner project to ~million-pixel coords, where float precision is
-            // coarse and the texture jitters as the camera turns.
+            // Clip the wall to the view frustum in camera space: the near plane
+            // and the two side (screen-edge) planes. Afterwards both endpoints
+            // are inside the view, so the projected x lands within [0, W] —
+            // bounded and precise (no texture jitter on grazing walls) and on the
+            // correct side, so there's no need to keep the camera away from
+            // portals. NEARZ must stay well above zero so 1/z and x stay sane.
             const float NEARZ = NEAR_PLANE;
+            const float slope = (W * 0.5f) / F_;             // tan(FOV/2): screen-edge tx/tz
+
+            // Near plane: if both ends are nearer than it (you're right on a
+            // portal) clamp them; otherwise slide the near one along the wall.
             if(tz1 < NEARZ && tz2 < NEARZ){
                 tz1 = NEARZ; tz2 = NEARZ;
             } else if(tz1 < NEARZ){
@@ -169,18 +172,25 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 float t = (NEARZ - tz2) / (tz1 - tz2); tx2 += (tx1-tx2)*t; u2 += (u1-u2)*t; tz2 = NEARZ;
             }
 
-            // project: screen_x = W/2 + tx*F/tz (not mirrored). Keep the edges as
-            // floats (fx1/fx2) so texture/height interpolation can be sampled at
-            // the exact pixel centre — without this, the integer-rounded edge
-            // makes textures swim/jitter on grazing-angle walls as you move.
+            // Side planes: clip the segment (tx,tz,u) to each half-space d >= 0.
+            auto clipSide = [&](float d1, float d2) -> bool {
+                if(d1 < 0 && d2 < 0) return false;           // wholly outside the view
+                if(d1 < 0){      float t = d1/(d1-d2); tx1 += (tx2-tx1)*t; tz1 += (tz2-tz1)*t; u1 += (u2-u1)*t; }
+                else if(d2 < 0){ float t = d1/(d1-d2); tx2  = tx1 + (tx2-tx1)*t; tz2 = tz1 + (tz2-tz1)*t; u2 = u1 + (u2-u1)*t; }
+                return true;
+            };
+            if(!clipSide(tx1 + slope*tz1, tx2 + slope*tz2)) continue;   // left  edge
+            if(!clipSide(slope*tz1 - tx1, slope*tz2 - tx2)) continue;   // right edge
+
+            // project: screen_x = W/2 + tx*F/tz (not mirrored, now within [0,W])
             float xs1 = F_ / tz1, xs2 = F_ / tz2;
             float fx1 = W * 0.5f + tx1 * xs1;
             float fx2 = W * 0.5f + tx2 * xs2;
             if(fx1 > fx2){                                    // front faces come out R-to-L
                 std::swap(fx1, fx2); std::swap(tz1, tz2); std::swap(xs1, xs2); std::swap(u1, u2);
             }
-            if(fx1 >= fx2) continue;                          // zero-width / back-face
-            if(fx2 < now.sx1 || fx1 > now.sx2) continue;      // outside the window
+            if(fx2 - fx1 < 0.01f) continue;                  // sub-pixel sliver
+            if(fx2 < now.sx1 || fx1 > now.sx2) continue;     // outside this sector's window
 
             float yc = sec.ceil  - P.z;
             float yf = sec.floor - P.z;
@@ -196,28 +206,6 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
 
             float iz1 = 1.0f/tz1, iz2 = 1.0f/tz2;
             float uoz1 = u1*iz1, uoz2 = u2*iz2;
-
-            // Clip the projected span to the screen window. 1/z, u/z and the
-            // vertical screen edges are all linear in screen-x, so the endpoints
-            // can be interpolated to the window edges exactly. This keeps the
-            // interpolation anchor (fx1) on-screen: a grazing wall whose far
-            // corner projects to x = millions would otherwise lose float
-            // precision there and make the texture jitter as the camera turns.
-            float L = (float)now.sx1, R = (float)now.sx2;
-            if(fx1 < L){
-                float f = (L - fx1) / (fx2 - fx1);
-                iz1 += (iz2-iz1)*f; uoz1 += (uoz2-uoz1)*f;
-                y1a += (y2a-y1a)*f; y1b += (y2b-y1b)*f;
-                n1a += (n2a-n1a)*f; n1b += (n2b-n1b)*f;
-                fx1 = L;
-            }
-            if(fx2 > R){
-                float f = (R - fx2) / (fx1 - fx2);
-                iz2 += (iz1-iz2)*f; uoz2 += (uoz1-uoz2)*f;
-                y2a += (y1a-y2a)*f; y2b += (y1b-y2b)*f;
-                n2a += (n1a-n2a)*f; n2b += (n1b-n2b)*f;
-                fx2 = R;
-            }
 
             int beginx = std::max((int)fx1, now.sx1), endx = std::min((int)fx2, now.sx2);
             float invspan = 1.0f / (fx2 - fx1);              // float span: subpixel-correct

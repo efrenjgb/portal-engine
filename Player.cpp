@@ -46,10 +46,10 @@ void Player::keepInside(const Map& map){
     int n = (int)sec.vert.size();
     for(int s = 0; s < n; ++s){
         Vec2 a = sec.vert[s], b = sec.vert[(s+1) % n];
-        // Portals: stand a bit farther off than the renderer's near plane, so a
-        // portal wall is never *inside* the near plane (which would make the
-        // flood drop it and black out the view). Solid walls use PLAYER_R.
-        float margin = (sec.neigh[s] < 0) ? PLAYER_R : (NEAR_PLANE + 0.03f);
+        // Solid walls keep a full body radius; portals only a hair, so you can
+        // walk right through them (the renderer's frustum clip handles being on
+        // top of a portal, so no larger standoff is needed).
+        float margin = (sec.neigh[s] < 0) ? PLAYER_R : 0.01f;
         float ex = b.x - a.x, ey = b.y - a.y;
         float L2 = ex*ex + ey*ey;
         if(L2 < 1e-12f) continue;

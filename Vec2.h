@@ -11,11 +11,12 @@
 
 constexpr float PI_F = 3.14159265358979323846f;
 
-// Camera near plane. Walls nearer than this are clipped to it. Kept well above
-// zero so 1/z and projected x stay numerically sane (avoids texture jitter on
-// grazing walls). The player is held farther than this off every wall (see
-// keep_inside), so a wall is never *inside* the near plane.
-constexpr float NEAR_PLANE = 0.05f;
+// Camera near plane (small). The renderer also clips walls to the view's side
+// edges, so projected x stays within [0,W] and texture coords stay precise even
+// for grazing walls — that frustum clip, not a large near plane, is what keeps
+// things numerically sane, so this can be tiny and the player can walk right up
+// to and through portals.
+constexpr float NEAR_PLANE = 0.005f;
 
 struct Vec2 { float x = 0, y = 0; };
 

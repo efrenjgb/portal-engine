@@ -4,6 +4,7 @@
 #pragma once
 #include "Map.h"
 #include "Camera.h"
+#include "Texture.h"
 #include <vector>
 #include <cstdint>
 
@@ -20,6 +21,9 @@ public:
     static constexpr int W = 960, H = 600;
 
     Renderer();
+
+    // Loaded image textures, indexed by surface texture id (-1 = procedural).
+    void setTextures(const std::vector<Texture>* t){ textures_ = t; }
 
     void clear(uint32_t bg);
     void renderWorld(const Map& map, const Camera& cam, int playerSector);
@@ -38,6 +42,7 @@ public:
 
 private:
     float F_;                          // focal length in pixels
+    const std::vector<Texture>* textures_ = nullptr;
     std::vector<uint32_t> fb_;         // W*H colour buffer
     std::vector<float>    zbuf_;       // W*H depth buffer
 #if EDITOR
@@ -45,11 +50,12 @@ private:
 #endif
     std::vector<int>      ytop_, ybot_;// per-column open vertical window
 
+    const Texture* imageFor(int texId) const;
     void putpx(int x, int y, uint32_t c);
     void line2d(int x0, int y0, int x1, int y1, uint32_t c);
     void wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
                   int clipT, int clipB, float u, uint32_t base, float depth,
-                  uint32_t surf, const TexXform& tx);
+                  uint32_t surf, const TexXform& tx, int texId);
     void planeSpan(const Camera& cam, int x, int y0, int y1, float pz, uint32_t base,
-                   uint32_t surf, const TexXform& tx);
+                   uint32_t surf, const TexXform& tx, int texId);
 };

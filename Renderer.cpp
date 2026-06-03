@@ -64,19 +64,28 @@ void Renderer::line2d(int x0, int y0, int x1, int y1, uint32_t c){
         int e2 = 2*e; if(e2 >= dy){ e += dy; x0 += sx; } if(e2 <= dx){ e += dx; y0 += sy; } }
 }
 
+// Choose the image texture for an id, or nullptr to fall back to procedural.
+const Texture* Renderer::imageFor(int texId) const {
+    if(texId >= 0 && textures_ && texId < (int)textures_->size() && !(*textures_)[texId].px.empty())
+        return &(*textures_)[texId];
+    return nullptr;
+}
+
 void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
                         int clipT, int clipB, float u, uint32_t base, float depth,
-                        [[maybe_unused]] uint32_t surf, const TexXform& tx){
+                        [[maybe_unused]] uint32_t surf, const TexXform& tx, int texId){
     int y0 = std::max((int)yTopf, clipT);
     int y1 = std::min((int)yBotf, clipB);
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float span = yBotf - yTopf; if(span == 0) span = 1.0f;
     float fade = distFade(depth);
     float su = u / tx.us + tx.uo;                 // texture coord along the wall
+    const Texture* img = imageFor(texId);
     for(int y = y0; y <= y1; ++y){
         float fy = (y - yTopf) / span;
         float v  = (vTop + (vBot - vTop) * fy) / tx.vs + tx.vo;
-        fb_[y*W + x]      = shade(texSample(base, su, v), fade);
+        uint32_t c = img ? img->at(su, v) : texSample(base, su, v);
+        fb_[y*W + x]      = shade(c, fade);
         zbuf_[y*W + x]    = depth;
 #if EDITOR
         pickbuf_[y*W + x] = surf;
@@ -85,9 +94,10 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
 }
 
 void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base,
-                         [[maybe_unused]] uint32_t surf, const TexXform& tx){
+                         [[maybe_unused]] uint32_t surf, const TexXform& tx, int texId){
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float h = pz - P.z;
+    const Texture* img = imageFor(texId);
     for(int y = y0; y <= y1; ++y){
         float denom = (H * 0.5f - y) - P.pitch * F_;
         float tz = h * F_ / denom;
@@ -96,7 +106,8 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float wx = P.x + P.vcos * tz + P.vsin * txc;
         float wy = P.y + P.vsin * tz - P.vcos * txc;
         float sx = wx / tx.us + tx.uo, sy = wy / tx.vs + tx.vo;
-        fb_[y*W + x]      = shade(planeTex(base, sx, sy), distFade(tz));
+        uint32_t c = img ? img->at(sx, sy) : planeTex(base, sx, sy);
+        fb_[y*W + x]      = shade(c, distFade(tz));
         zbuf_[y*W + x]    = tz;
 #if EDITOR
         pickbuf_[y*W + x] = surf;
@@ -195,18 +206,19 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 int cya = clampi((int)yaf, wt, wb);
                 int cyb = clampi((int)ybf, wt, wb);
 
-                planeSpan(P, x, wt, cya-1, sec.ceil,  sec.ceilCol,  packSurf(now.sect, SurfaceRef::Ceiling, 0), sec.ceilTex);
-                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol, packSurf(now.sect, SurfaceRef::Floor,   0), sec.floorTex);
+                planeSpan(P, x, wt, cya-1, sec.ceil,  sec.ceilCol,  packSurf(now.sect, SurfaceRef::Ceiling, 0), sec.ceilTex,  sec.ceilTexId);
+                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol, packSurf(now.sect, SurfaceRef::Floor,   0), sec.floorTex, sec.floorTexId);
 
                 uint32_t wsurf = packSurf(now.sect, SurfaceRef::Wall, s);
                 const TexXform& wtx = sec.wallTex[s];
+                int wid = sec.wallTexId[s];
                 if(nb < 0){
-                    wallSpan(x, yaf, ybf, sec.ceil, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx);
+                    wallSpan(x, yaf, ybf, sec.ceil, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx, wid);
                 } else {
                     float naf = n1a + (n2a - n1a) * t;
                     float nbf = n1b + (n2b - n1b) * t;
-                    wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep, wsurf, wtx);
-                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx);
+                    wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep, wsurf, wtx, wid);
+                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx, wid);
                     ytop_[x] = clampi(std::max((int)yaf, (int)naf), wt, H-1);
                     ybot_[x] = clampi(std::min((int)ybf, (int)nbf), 0,  wb);
                 }

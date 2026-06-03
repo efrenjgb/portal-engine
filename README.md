@@ -38,7 +38,8 @@ headlessly. (Originally this was a single C file; see the git history.)
 `Q`/`E` turn · `R`/`F` pitch · `M` release mouse · `Esc` quit.
 `Tab` toggles **edit mode**, which acts on the surface under the crosshair:
 `T`/`G` raise/lower the sector *floor*, `Y`/`H` the *ceiling*; `[`/`]` shrink/grow
-the texture, `;`/`'` pan it horizontally and `,`/`.` vertically. `P` sets the
+the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, and `N` cycles
+the surface's image texture. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the
 edited world to `<mapfile>.save` (reload it with `./build_engine <mapfile>.save`).
 The green lines on the top-left minimap are **portals**; grey lines are solid
@@ -60,7 +61,7 @@ Both are "2.5D": the world is fundamentally a 2D floor plan, and walls are alway
 vertical. That constraint is what makes the math cheap enough for a 1996 CPU —
 and what makes it a great thing to learn from.
 
-## The ten techniques in this prototype
+## The eleven techniques in this prototype
 
 **1. Sectors & walls (`Sector` struct, the map data).**
 The world is just three polygons. Each has a `floor`/`ceil` height and a list of
@@ -157,8 +158,18 @@ the exact surface under the crosshair (from the pick buffer), and it's saved
 per-surface in the map file. Defaults (`1,1,0,0`) reproduce the world-locked
 tiling, so existing maps look unchanged.
 
+**11. Image textures (`Texture`, `loadPPM`).**
+Surfaces can use an image instead of the procedural pattern. Textures are listed
+in the map (`texture <file>`, index = id) and loaded into a `Texture` (an RGBA
+buffer) at startup; each wall/floor/ceiling has a texture id (-1 = procedural).
+The samplers wrap the image with the same `TexXform` scale/offset as everything
+else. Images are **PPM (P6)** to keep the loader ~15 lines and dependency-free —
+`loadPPM` is the only thing to replace (e.g. with `stb_image`) to add PNG/JPG.
+Sample textures live in `textures/` (regenerate with `tools/gen_textures.py`);
+in edit mode `N` cycles a surface's texture and it's saved per-surface.
+
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
-thrown in so it reads as a room rather than flat colours.
+the fallback when a surface has no image assigned.
 
 ## Things deliberately left out (good next steps)
 

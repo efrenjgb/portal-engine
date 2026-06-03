@@ -31,18 +31,25 @@
 #        +----------------------> x
 # ============================================================================
 
+# image textures (index = id; -1 on a surface means procedural)
+texture textures/brick.ppm
+texture textures/tiles.ppm
+texture textures/panel.ppm
+
 player 5 4 0 90
 
 # --- sector 0: start room (doorway gap x=2..8 -> sec1; window gap y=3..6 -> sec3)
+# floor uses the tiles image (id 1); the side walls use the metal panel (id 2)
 sector 0.0 4.5 243447 1b2230 6f7d8c
-  wall  0 0   -1
+  wall  0 0   -1 2 2 0 0 2
   wall 10 0   -1
   wall 10 3    3
   wall 10 6   -1
   wall 10 8   -1
   wall  8 8    1
   wall  2 8   -1
-  wall  0 8   -1
+  wall  0 8   -1 2 2 0 0 2
+  floortex 2 2 0 0 1
 
 # --- sector 1: corridor (low ceiling -> header over both doorways)
 sector 0.45 2.6 3a2d22 241c15 9c7b52
@@ -51,20 +58,21 @@ sector 0.45 2.6 3a2d22 241c15 9c7b52
   wall 8 12    2
   wall 2 12   -1
 
-# --- sector 2: back room (doorway gap x=2..8 -> sec1)
+# --- sector 2: back room (doorway gap x=2..8 -> sec1); walls use brick (id 0)
 sector 0.9 4.5 203a2a 14241a 5f9c74
-  wall  0 12  -1
+  wall  0 12  -1 2 2 0 0 0
   wall  2 12   1
-  wall  8 12  -1
-  wall 10 12  -1
-  wall 10 20  -1
-  wall  0 20  -1
+  wall  8 12  -1 2 2 0 0 0
+  wall 10 12  -1 2 2 0 0 0
+  wall 10 20  -1 2 2 0 0 0
+  wall  0 20  -1 2 2 0 0 0
 
 # --- sector 3: small alcove behind the window (high sill, low ceiling)
+# walls use the metal panel (id 2) so the window frames something distinct
 sector 1.2 2.6 4a4630 2a2818 c8b050
-  wall 10 3   -1
-  wall 12 3   -1
-  wall 12 6   -1
+  wall 10 3   -1 2 2 0 0 2
+  wall 12 3   -1 2 2 0 0 2
+  wall 12 6   -1 2 2 0 0 2
   wall 10 6    0
 
 # --- props

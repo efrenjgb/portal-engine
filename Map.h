@@ -22,7 +22,9 @@ struct Sector {
     std::vector<Vec2>      vert;
     std::vector<int>       neigh;
     std::vector<TexXform>  wallTex;          // parallel to vert/neigh
+    std::vector<int>       wallTexId;        // image-texture index, -1 = procedural
     TexXform               floorTex, ceilTex;
+    int                    floorTexId = -1, ceilTexId = -1;
     uint32_t floorCol = 0, ceilCol = 0, wallCol = 0;
 };
 
@@ -35,8 +37,9 @@ struct Sprite {
 };
 
 struct Map {
-    std::vector<Sector> sectors;
-    std::vector<Sprite> sprites;
+    std::vector<Sector>      sectors;
+    std::vector<Sprite>      sprites;
+    std::vector<std::string> textures;   // image files; index == texture id
     Vec2  playerStart;
     int   startSector = 0;
     float startAngle  = 0;   // radians

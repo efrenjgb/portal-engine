@@ -1,8 +1,8 @@
 CXX      = c++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wextra $(shell sdl2-config --cflags) $(EXTRA)
 LDFLAGS  = $(shell sdl2-config --libs)
-SRCS     = main.cpp Map.cpp Renderer.cpp Player.cpp
-HDRS     = Vec2.h Camera.h Map.h Renderer.h Player.h
+SRCS     = main.cpp Map.cpp Renderer.cpp Player.cpp Texture.cpp
+HDRS     = Vec2.h Camera.h Map.h Renderer.h Player.h Texture.h
 
 # Default build: includes the in-engine editor + pick buffer (Tab to toggle).
 build_engine: $(SRCS) $(HDRS)

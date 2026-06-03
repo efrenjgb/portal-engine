@@ -5,7 +5,9 @@
 #include <string>
 #include <utility>
 #include <algorithm>
+#include <vector>
 #include "Map.h"
+#include "Texture.h"
 #include "Renderer.h"
 #include "Player.h"
 
@@ -37,6 +39,14 @@ int main(int argc, char** argv){
 
     Renderer renderer;
 
+    // Load image textures referenced by the map (empty entry => procedural).
+    std::vector<Texture> texSet;
+    for(const std::string& tpath : map.textures){
+        auto t = loadPPM(tpath);
+        texSet.push_back(t ? std::move(*t) : Texture{});
+    }
+    renderer.setTextures(&texSet);
+
     printf("\n  Build-style portal engine (C++)%s\n"
              "  -------------------------------\n"
              "   WASD / arrows : move & strafe\n"
@@ -52,6 +62,7 @@ int main(int argc, char** argv){
              "     [ / ]       :   shrink / grow texture on aimed surface\n"
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
+             "   N             :   cycle image texture on aimed surface\n"
              "   P             : set player start to current position\n"
              "   K             : save edited map (to <mapfile>.save)\n");
 #endif
@@ -74,6 +85,18 @@ int main(int argc, char** argv){
                                  SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE); }
 #if EDITOR
                 if(k == SDLK_TAB) editMode = !editMode;
+                if(k == SDLK_n){   // cycle image texture on the aimed surface
+                    SurfaceRef a = renderer.pickAt(W/2, H/2);
+                    int n = (int)texSet.size(), *idp = nullptr;
+                    if(a.sector >= 0 && a.sector < (int)map.sectors.size()){
+                        Sector& sc = map.sectors[a.sector];
+                        if(a.kind == SurfaceRef::Wall && a.wall < (int)sc.wallTexId.size()) idp = &sc.wallTexId[a.wall];
+                        else if(a.kind == SurfaceRef::Floor)   idp = &sc.floorTexId;
+                        else if(a.kind == SurfaceRef::Ceiling) idp = &sc.ceilTexId;
+                    }
+                    if(idp){ *idp = (*idp + 1 >= n) ? -1 : *idp + 1;
+                             printf("texture id = %d %s\n", *idp, *idp < 0 ? "(procedural)" : ""); }
+                }
                 if(k == SDLK_k)   saveMap(map, savePath);
                 if(k == SDLK_p){
                     map.playerStart = { player.cam.x, player.cam.y };

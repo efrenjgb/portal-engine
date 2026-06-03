@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
-# Generate the sample PPM (P6) textures used by map.txt. No dependencies.
+# Generate the sample PNG textures used by map.txt. Pure stdlib (zlib), no PIL.
 #   python3 tools/gen_textures.py
-import os, math, random
+import os, math, random, zlib, struct
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "textures")
 os.makedirs(OUT, exist_ok=True)
 S = 64  # texture size
 
-def write_ppm(name, pixels):
+def write_png(name, pixels):                 # pixels: bytes, S*S*3 RGB
+    raw = bytearray()
+    for y in range(S):                       # each scanline gets a filter byte (0)
+        raw.append(0)
+        raw += pixels[y*S*3:(y+1)*S*3]
+    def chunk(typ, data):
+        return (struct.pack(">I", len(data)) + typ + data +
+                struct.pack(">I", zlib.crc32(typ + data) & 0xffffffff))
+    png = (b"\x89PNG\r\n\x1a\n"
+           + chunk(b"IHDR", struct.pack(">IIBBBBB", S, S, 8, 2, 0, 0, 0))   # 8-bit RGB
+           + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+           + chunk(b"IEND", b""))
     path = os.path.join(OUT, name)
     with open(path, "wb") as f:
-        f.write(b"P6\n%d %d\n255\n" % (S, S))
-        f.write(bytes(pixels))
+        f.write(png)
     print("wrote", os.path.relpath(path))
 
 def brick():
@@ -58,6 +68,6 @@ def panel():
             px += bytes((max(0,min(255,r)), max(0,min(255,g)), max(0,min(255,b))))
     return px
 
-write_ppm("brick.ppm", brick())
-write_ppm("tiles.ppm", tiles())
-write_ppm("panel.ppm", panel())
+write_png("brick.png", brick())
+write_png("tiles.png", tiles())
+write_png("panel.png", panel())

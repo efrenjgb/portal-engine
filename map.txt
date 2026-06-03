@@ -32,9 +32,9 @@
 # ============================================================================
 
 # image textures (index = id; -1 on a surface means procedural)
-texture textures/brick.ppm
-texture textures/tiles.ppm
-texture textures/panel.ppm
+texture textures/brick.png
+texture textures/tiles.png
+texture textures/panel.png
 
 player 5 4 0 90
 

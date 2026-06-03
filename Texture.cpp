@@ -1,6 +1,21 @@
 #include "Texture.h"
+#include "stb_image.h"          // declarations only; impl is in stb_image_impl.cpp
 #include <fstream>
 #include <cstdio>
+
+// Load PNG/JPG/BMP/TGA via stb_image; fall back to PPM (which stb doesn't read).
+std::optional<Texture> loadImage(const std::string& path){
+    int w = 0, h = 0, n = 0;
+    unsigned char* d = stbi_load(path.c_str(), &w, &h, &n, 3);   // force RGB
+    if(d){
+        Texture t; t.w = w; t.h = h; t.px.resize((size_t)w * h);
+        for(size_t i = 0; i < t.px.size(); ++i)
+            t.px[i] = 0xFF000000u | (d[i*3] << 16) | (d[i*3+1] << 8) | d[i*3+2];
+        stbi_image_free(d);
+        return t;
+    }
+    return loadPPM(path);
+}
 
 // Minimal binary PPM (P6) reader. Assumes the simple header our generator
 // writes ("P6\nW H\n255\n") with no embedded comments.

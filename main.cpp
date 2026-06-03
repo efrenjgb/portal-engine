@@ -42,7 +42,7 @@ int main(int argc, char** argv){
     // Load image textures referenced by the map (empty entry => procedural).
     std::vector<Texture> texSet;
     for(const std::string& tpath : map.textures){
-        auto t = loadPPM(tpath);
+        auto t = loadImage(tpath);
         texSet.push_back(t ? std::move(*t) : Texture{});
     }
     renderer.setTextures(&texSet);

@@ -158,15 +158,16 @@ the exact surface under the crosshair (from the pick buffer), and it's saved
 per-surface in the map file. Defaults (`1,1,0,0`) reproduce the world-locked
 tiling, so existing maps look unchanged.
 
-**11. Image textures (`Texture`, `loadPPM`).**
+**11. Image textures (`Texture`, `loadImage`).**
 Surfaces can use an image instead of the procedural pattern. Textures are listed
 in the map (`texture <file>`, index = id) and loaded into a `Texture` (an RGBA
 buffer) at startup; each wall/floor/ceiling has a texture id (-1 = procedural).
 The samplers wrap the image with the same `TexXform` scale/offset as everything
-else. Images are **PPM (P6)** to keep the loader ~15 lines and dependency-free —
-`loadPPM` is the only thing to replace (e.g. with `stb_image`) to add PNG/JPG.
-Sample textures live in `textures/` (regenerate with `tools/gen_textures.py`);
-in edit mode `N` cycles a surface's texture and it's saved per-surface.
+else. `loadImage` decodes **PNG/JPG/BMP/TGA** via the vendored single-header
+`stb_image.h` (its implementation is isolated in `stb_image_impl.cpp`), with a
+tiny built-in **PPM** reader as a fallback. Sample PNGs live in `textures/`
+(regenerate with `tools/gen_textures.py`); in edit mode `N` cycles a surface's
+texture and it's saved per-surface.
 
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
 the fallback when a surface has no image assigned.
@@ -181,3 +182,6 @@ the fallback when a surface has no image assigned.
 - Ken Silverman's original BUILD source and notes (advsys.net/ken).
 - Bisqwit's "Creating a Doom-style 3D engine in C" video + code — the compact
   teaching renderer this prototype's structure follows.
+
+Vendored: `stb_image.h` (Sean Barrett / nothings.org, public domain) for image
+decoding.

@@ -1,5 +1,5 @@
-// An image texture loaded from a PPM (P6) file. (PPM keeps the loader tiny and
-// dependency-free; swap loadPPM for a stb_image call to support PNG/JPG.)
+// An image texture. loadImage() handles PNG/JPG/BMP/TGA via stb_image, and
+// falls back to a tiny built-in PPM (P6) reader.
 #pragma once
 #include "Vec2.h"
 #include <vector>
@@ -22,4 +22,5 @@ struct Texture {
     }
 };
 
-std::optional<Texture> loadPPM(const std::string& path);
+std::optional<Texture> loadImage(const std::string& path);  // PNG/JPG/BMP/TGA, or PPM
+std::optional<Texture> loadPPM(const std::string& path);    // built-in fallback

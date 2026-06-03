@@ -35,7 +35,8 @@ raise/lower the *ceiling* of whatever sector you're aiming at. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the
 edited world to `<mapfile>.save` (reload it with `./build_engine <mapfile>.save`).
 The green lines on the top-left minimap are **portals**; grey lines are solid
-walls; the **magenta** outline is the sector you're aiming at in edit mode.
+walls; in edit mode the **magenta** outline is the sector you're aiming at and a
+**yellow** edge is the specific wall under the crosshair.
 
 ---
 
@@ -129,14 +130,16 @@ instead of poking over the header. (The period-accurate Build/Doom alternative
 is to sort sprites and walls per sector and clip with per-column spans; a depth
 buffer is the simpler, more general way to the same result.)
 
-**9. Live height editing (`pick_sector` + `Tab`).**
-Build's signature trick was editing the world while walking around in it. Press
-`Tab` and a 2-D ray is cast straight ahead — `pick_sector` walks it through
-portals until it meets a solid wall — to find the sector you're aiming at; then
-`T`/`G` and `Y`/`H` change that sector's floor and ceiling in real time. Nothing
-is precomputed, so the next frame just renders the new heights. Because heights
-are plain sector fields, raising a floor turns a doorway into a step, lowering a
-ceiling makes a header, and so on — all live.
+**9. Live editing + surface picking (`Tab`, `Renderer::pickAt`).**
+Build's signature trick was editing the world while walking around in it. As the
+renderer draws each wall/floor/ceiling it also stamps a packed *surface ID* into
+a per-pixel pick buffer (alongside the depth buffer). `pickAt(x, y)` then decodes
+the pixel under the crosshair into a `SurfaceRef` — `{sector, kind (floor /
+ceiling / wall), wall index}` — so we know exactly which surface you're looking
+at, even through a doorway or window. Press `Tab` and `T`/`G`, `Y`/`H` change the
+aimed sector's floor/ceiling in real time (nothing is precomputed — the next
+frame just renders the new heights). The pick is the groundwork for per-surface
+editing like textures: it's specific down to the individual wall.
 
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
 thrown in so it reads as a room rather than flat colours.

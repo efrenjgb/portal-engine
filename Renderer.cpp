@@ -38,10 +38,16 @@ static uint32_t spriteTex(uint32_t base, float u, float v){    // barrel/drum
     return shade(base, f);
 }
 
+// Pack a surface identity into one word: kind(4) | wall(12) | sector(16).
+// 0 == nothing (SurfaceRef::None), which is what the pick buffer clears to.
+static inline uint32_t packSurf(int sector, int kind, int wall){
+    return ((uint32_t)kind << 28) | (((uint32_t)wall & 0xFFF) << 16) | ((uint32_t)sector & 0xFFFF);
+}
+
 // ---- Renderer --------------------------------------------------------------
 Renderer::Renderer()
     : F_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
-      fb_(W*H), zbuf_(W*H), ytop_(W), ybot_(W) {}
+      fb_(W*H), zbuf_(W*H), pickbuf_(W*H), ytop_(W), ybot_(W) {}
 
 void Renderer::clear(uint32_t bg){ std::fill(fb_.begin(), fb_.end(), bg); }
 
@@ -55,7 +61,7 @@ void Renderer::line2d(int x0, int y0, int x1, int y1, uint32_t c){
 }
 
 void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
-                        int clipT, int clipB, float u, uint32_t base, float depth){
+                        int clipT, int clipB, float u, uint32_t base, float depth, uint32_t surf){
     int y0 = std::max((int)yTopf, clipT);
     int y1 = std::min((int)yBotf, clipB);
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
@@ -64,12 +70,13 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
     for(int y = y0; y <= y1; ++y){
         float fy = (y - yTopf) / span;
         float v  = vTop + (vBot - vTop) * fy;
-        fb_[y*W + x]   = shade(texSample(base, u, v), fade);
-        zbuf_[y*W + x] = depth;
+        fb_[y*W + x]      = shade(texSample(base, u, v), fade);
+        zbuf_[y*W + x]    = depth;
+        pickbuf_[y*W + x] = surf;
     }
 }
 
-void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base){
+void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base, uint32_t surf){
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float h = pz - P.z;
     for(int y = y0; y <= y1; ++y){
@@ -79,14 +86,16 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float tx = (x - W * 0.5f) * tz / F_;
         float wx = P.x + P.vcos * tz + P.vsin * tx;
         float wy = P.y + P.vsin * tz - P.vcos * tx;
-        fb_[y*W + x]   = shade(planeTex(base, wx, wy), distFade(tz));
-        zbuf_[y*W + x] = tz;
+        fb_[y*W + x]      = shade(planeTex(base, wx, wy), distFade(tz));
+        zbuf_[y*W + x]    = tz;
+        pickbuf_[y*W + x] = surf;
     }
 }
 
 void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
     for(int x = 0; x < W; ++x){ ytop_[x] = 0; ybot_[x] = H-1; }
     std::fill(zbuf_.begin(), zbuf_.end(), 1e9f);
+    std::fill(pickbuf_.begin(), pickbuf_.end(), 0u);
     std::vector<char> seen(map.sectors.size(), 0);
 
     struct Item { int sect, sx1, sx2; };
@@ -172,16 +181,17 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 int cya = clampi((int)yaf, wt, wb);
                 int cyb = clampi((int)ybf, wt, wb);
 
-                planeSpan(P, x, wt, cya-1, sec.ceil,  sec.ceilCol);
-                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol);
+                planeSpan(P, x, wt, cya-1, sec.ceil,  sec.ceilCol,  packSurf(now.sect, SurfaceRef::Ceiling, 0));
+                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol, packSurf(now.sect, SurfaceRef::Floor,   0));
 
+                uint32_t wsurf = packSurf(now.sect, SurfaceRef::Wall, s);
                 if(nb < 0){
-                    wallSpan(x, yaf, ybf, sec.ceil, sec.floor, wt, wb, u, sec.wallCol, dep);
+                    wallSpan(x, yaf, ybf, sec.ceil, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf);
                 } else {
                     float naf = n1a + (n2a - n1a) * t;
                     float nbf = n1b + (n2b - n1b) * t;
-                    wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep);
-                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep);
+                    wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep, wsurf);
+                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf);
                     ytop_[x] = clampi(std::max((int)yaf, (int)naf), wt, H-1);
                     ybot_[x] = clampi(std::min((int)ybf, (int)nbf), 0,  wb);
                 }
@@ -240,7 +250,7 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
     }
 }
 
-void Renderer::drawMinimap(const Map& map, const Camera& P, int pickSector,
+void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim,
                            Vec2 start, float startAngle){
     const float sc = 7.0f; const int ox = 14, oy = 14, maxy = 20;
     auto MX = [&](float wx){ return ox + (int)(wx * sc); };
@@ -252,7 +262,9 @@ void Renderer::drawMinimap(const Map& map, const Camera& P, int pickSector,
         for(int w = 0; w < np; ++w){
             Vec2 a = s.vert[w], b = s.vert[(w+1) % np];
             uint32_t c = (s.neigh[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
-            if(i == pickSector) c = 0xFFff30ff;
+            if(i == aim.sector) c = 0xFFff30ff;                              // aimed sector
+            if(aim.kind == SurfaceRef::Wall && i == aim.sector && w == aim.wall)
+                c = 0xFFffe020;                                             // aimed wall = yellow
             line2d(MX(a.x), MY(a.y), MX(b.x), MY(b.y), c);
         }
     }
@@ -273,4 +285,16 @@ void Renderer::drawMinimap(const Map& map, const Camera& P, int pickSector,
 
 void Renderer::crosshair(uint32_t col){
     for(int i = -5; i <= 5; ++i){ putpx(W/2+i, H/2, col); putpx(W/2, H/2+i, col); }
+}
+
+SurfaceRef Renderer::pickAt(int x, int y) const {
+    SurfaceRef r;
+    if(x < 0 || x >= W || y < 0 || y >= H) return r;
+    uint32_t s = pickbuf_[(size_t)y*W + x];
+    int kind = (int)((s >> 28) & 0xF);
+    if(kind == 0) return r;                       // background / nothing
+    r.kind   = (SurfaceRef::Kind)kind;
+    r.wall   = (int)((s >> 16) & 0xFFF);
+    r.sector = (int)(s & 0xFFFF);
+    return r;
 }

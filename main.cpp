@@ -110,16 +110,26 @@ int main(int argc, char** argv){
         player.collideSprites(map);
         player.keepInside(map);
 
-        // ---- height editor ----
-        int pick = -1;
-        if(editMode){
-            pick = player.pickSector(map);
-            Sector& t = map.sectors[pick];
+        // ---- what's under the crosshair (from last frame's pick buffer) ----
+        SurfaceRef aim = renderer.pickAt(W/2, H/2);
+
+        // ---- height editor: acts on the aimed surface's sector ----
+        if(editMode && aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
+            Sector& t = map.sectors[aim.sector];
             float rate = 2.0f * dt;
             if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceil - 0.3f);
             if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
             if(ks[SDL_SCANCODE_Y]) t.ceil  = std::min(t.ceil  + rate,  18.0f);
             if(ks[SDL_SCANCODE_H]) t.ceil  = std::max(t.ceil  - rate,  t.floor + 0.3f);
+        }
+        // report the targeted surface when it changes (groundwork for texturing)
+        static int lastK = -1, lastS = -1, lastW = -1;
+        if(editMode && ((int)aim.kind != lastK || aim.sector != lastS || aim.wall != lastW)){
+            if(aim.kind == SurfaceRef::Wall)
+                printf("aim: sector %d WALL %d\n", aim.sector, aim.wall);
+            else if(aim.kind == SurfaceRef::Floor)   printf("aim: sector %d FLOOR\n",   aim.sector);
+            else if(aim.kind == SurfaceRef::Ceiling) printf("aim: sector %d CEILING\n", aim.sector);
+            lastK = (int)aim.kind; lastS = aim.sector; lastW = aim.wall;
         }
 
         player.settleEyeHeight(map, dt);
@@ -128,7 +138,8 @@ int main(int argc, char** argv){
         renderer.clear(0xFF0a0c12);
         renderer.renderWorld(map, player.cam, player.sector);
         renderer.drawSprites(map, player.cam);
-        renderer.drawMinimap(map, player.cam, pick, map.playerStart, map.startAngle);
+        renderer.drawMinimap(map, player.cam, editMode ? aim : SurfaceRef{},
+                             map.playerStart, map.startAngle);
         renderer.crosshair(editMode ? 0xFF40ff40 : 0xFFe0e0e0);
 
         SDL_UpdateTexture(tex, nullptr, renderer.pixels(), W * sizeof(uint32_t));

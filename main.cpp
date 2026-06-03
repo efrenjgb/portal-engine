@@ -63,6 +63,7 @@ int main(int argc, char** argv){
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
              "   N             :   cycle image texture on aimed surface\n"
+             "   O             :   toggle parallax sky on aimed ceiling\n"
              "   P             : set player start to current position\n"
              "   K             : save edited map (to <mapfile>.save)\n");
 #endif
@@ -97,6 +98,14 @@ int main(int argc, char** argv){
                     }
                     if(idp){ *idp = (*idp + 1 >= n) ? -1 : *idp + 1;
                              printf("texture id = %d %s\n", *idp, *idp < 0 ? "(procedural)" : ""); }
+                }
+                if(k == SDLK_o){   // toggle parallax sky on the aimed ceiling
+                    SurfaceRef a = renderer.pickAt(W/2, H/2);
+                    if(a.kind == SurfaceRef::Ceiling && a.sector >= 0 && a.sector < (int)map.sectors.size()){
+                        bool& sky = map.sectors[a.sector].ceilSky;
+                        sky = !sky;
+                        printf("sector %d ceiling sky = %s\n", a.sector, sky ? "on" : "off");
+                    }
                 }
                 if(k == SDLK_k)   saveMap(map, savePath);
                 if(k == SDLK_p){

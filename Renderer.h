@@ -58,4 +58,5 @@ private:
                   uint32_t surf, const TexXform& tx, int texId);
     void planeSpan(const Camera& cam, int x, int y0, int y1, float pz, uint32_t base,
                    uint32_t surf, const TexXform& tx, int texId);
+    void skySpan(const Camera& cam, int x, int y0, int y1, int texId, uint32_t surf);
 };

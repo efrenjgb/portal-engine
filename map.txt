@@ -66,6 +66,7 @@ sector 0.9 4.5 203a2a 14241a 5f9c74
   wall 10 12  -1 2 2 0 0 0
   wall 10 20  -1 2 2 0 0 0
   wall  0 20  -1 2 2 0 0 0
+  ceilsky
 
 # --- sector 3: small alcove behind the window (high sill, low ceiling)
 # walls use the metal panel (id 2) so the window frames something distinct

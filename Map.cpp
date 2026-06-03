@@ -56,6 +56,9 @@ std::optional<Map> loadMap(const std::string& path){
             if(got != 4 && got != 5){ fprintf(stderr, "map:%d bad %s\n", ln, kw); fclose(f); return std::nullopt; }
             if(kw[0] == 'f'){ m.sectors[cur].floorTex = tx; m.sectors[cur].floorTexId = texId; }
             else            { m.sectors[cur].ceilTex  = tx; m.sectors[cur].ceilTexId  = texId; }
+        } else if(!strcmp(kw, "ceilsky")){
+            if(cur < 0){ fprintf(stderr, "map:%d ceilsky before sector\n", ln); fclose(f); return std::nullopt; }
+            m.sectors[cur].ceilSky = true;
         } else if(!strcmp(kw, "sprite")){
             float x, y, z, r, h; unsigned col;
             if(sscanf(p, "%*s %f %f %f %f %f %x", &x, &y, &z, &r, &h, &col) != 6){ fprintf(stderr, "map:%d bad sprite\n", ln); fclose(f); return std::nullopt; }
@@ -113,6 +116,7 @@ bool saveMap(const Map& m, const std::string& path){
             fprintf(f, "  ceiltex %g %g %g %g %d\n", s.ceilTex.us, s.ceilTex.vs, s.ceilTex.uo, s.ceilTex.vo, s.ceilTexId);
         else if(!s.ceilTex.isDefault())
             fprintf(f, "  ceiltex %g %g %g %g\n", s.ceilTex.us, s.ceilTex.vs, s.ceilTex.uo, s.ceilTex.vo);
+        if(s.ceilSky) fprintf(f, "  ceilsky\n");
         fprintf(f, "\n");
     }
     for(const Sprite& s : m.sprites)

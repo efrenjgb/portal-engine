@@ -25,6 +25,7 @@ struct Sector {
     std::vector<int>       wallTexId;        // image-texture index, -1 = procedural
     TexXform               floorTex, ceilTex;
     int                    floorTexId = -1, ceilTexId = -1;
+    bool                   ceilSky = false;   // render ceiling as a parallax sky
     uint32_t floorCol = 0, ceilCol = 0, wallCol = 0;
 };
 

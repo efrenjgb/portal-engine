@@ -117,22 +117,18 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
 
 // Parallax sky: sample by the column's view ANGLE (and screen row), so the
 // ceiling looks infinitely far — it pans as you turn/look but not as you walk.
-void Renderer::skySpan(const Camera& P, int x, int y0, int y1, int texId,
+void Renderer::skySpan(const Camera& P, int x, int y0, int y1, uint32_t base, int texId,
                        [[maybe_unused]] uint32_t surf){
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
-    const Texture* img = imageFor(texId);
-    const float SKY_TURNS = 1.0f;                       // one panorama per 360 deg
+    const Texture* img = imageFor(texId);               // any assigned image, e.g. bricks
+    const float SKY_TURNS = 1.0f;                       // one wrap per 360 deg
     float ang = P.angle + std::atan((x - W * 0.5f) / F_);
-    float su  = ang * (SKY_TURNS / (2.0f * PI_F));      // tile units, wraps with yaw
+    float su  = ang * (SKY_TURNS / (2.0f * PI_F));      // horizontal: pans with yaw
     for(int y = y0; y <= y1; ++y){
-        uint32_t c;
-        if(img){
-            c = img->at(su, (float)y / (float)H);
-        } else {                                        // procedural gradient: zenith->horizon
-            float t = (float)y / (H * 0.5f); if(t > 1.0f) t = 1.0f;
-            int r = (int)(0x24 + (0x9f-0x24)*t), g = (int)(0x3a + (0xb6-0x3a)*t), bl = (int)(0x6e + (0xd8-0x6e)*t);
-            c = 0xFF000000u | (r<<16) | (g<<8) | bl;
-        }
+        float sv = (float)y / (float)H;                 // vertical: screen row
+        // Any texture works as a sky: an image if one is assigned, else the
+        // procedural pattern — both sampled by view angle, not world position.
+        uint32_t c = img ? img->at(su, sv) : planeTex(base, su * 8.0f, sv * 4.0f);
         fb_[y*W + x]      = c;                           // no distance fade: it's "far"
         zbuf_[y*W + x]    = 1e9f;                        // behind everything
 #if EDITOR
@@ -250,7 +246,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 int cyb = clampi((int)ybf, wt, wb);
 
                 uint32_t ceilSurf = packSurf(now.sect, SurfaceRef::Ceiling, 0);
-                if(sec.ceilSky) skySpan(P, x, wt, cya-1, sec.ceilTexId, ceilSurf);
+                if(sec.ceilSky) skySpan(P, x, wt, cya-1, sec.ceilCol, sec.ceilTexId, ceilSurf);
                 else            planeSpan(P, x, wt, cya-1, sec.ceil, sec.ceilCol, ceilSurf, sec.ceilTex, sec.ceilTexId);
                 planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol, packSurf(now.sect, SurfaceRef::Floor, 0), sec.floorTex, sec.floorTexId);
 

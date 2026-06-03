@@ -19,7 +19,8 @@ per-vertex neighbour links, sprites, and the player start).
 **Controls:** `WASD`/arrows move & strafe · mouse looks (turn + pitch) ·
 `Q`/`E` turn · `R`/`F` pitch · `M` release mouse · `Esc` quit.
 `Tab` toggles **height-edit mode**: `T`/`G` raise/lower the *floor* and `Y`/`H`
-raise/lower the *ceiling* of whatever sector you're aiming at.
+raise/lower the *ceiling* of whatever sector you're aiming at. `K` saves the
+edited world to `<mapfile>.save` (reload it with `./build_engine <mapfile>.save`).
 The green lines on the top-left minimap are **portals**; grey lines are solid
 walls; the **magenta** outline is the sector you're aiming at in edit mode.
 

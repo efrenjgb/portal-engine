@@ -106,6 +106,7 @@ static uint32_t *fb;          /* W*H, 0xAARRGGBB                              */
 static float zbuf[W*H];       /* per-pixel depth of the nearest opaque surface */
 static int   edit_mode = 0;   /* in-engine height editor (toggle with TAB)     */
 static int   g_pick    = -1;  /* sector currently under the crosshair          */
+static char  g_savepath[512]; /* where 'K' writes the edited map                */
 
 static uint32_t shade(uint32_t c, float f){
     if(f < 0) f = 0; if(f > 1) f = 1;
@@ -647,12 +648,39 @@ fail:
     return 0;
 }
 
+/* Write the current world back out in the same format load_map reads. */
+static void save_map(const char *path){
+    FILE *f = fopen(path, "w");
+    if(!f){ fprintf(stderr, "cannot write map '%s'\n", path); return; }
+    fprintf(f, "# saved by the build_engine height editor\n\n");
+    fprintf(f, "player %g %g %d %g\n\n",
+            P.x, P.y, P.sector, P.angle * 180.0f / (float)M_PI);
+    for(int i = 0; i < nsectors; ++i){
+        Sector *s = &sectors[i];
+        fprintf(f, "sector %g %g %06x %06x %06x\n", s->floor, s->ceil,
+                (unsigned)(s->floorcol & 0xFFFFFF),
+                (unsigned)(s->ceilcol  & 0xFFFFFF),
+                (unsigned)(s->wallcol  & 0xFFFFFF));
+        for(int w = 0; w < s->npoints; ++w)
+            fprintf(f, "  wall %g %g %d\n", s->vert[w].x, s->vert[w].y, s->neigh[w]);
+        fprintf(f, "\n");
+    }
+    for(int i = 0; i < nsprites; ++i){
+        Sprite *s = &sprites[i];
+        fprintf(f, "sprite %g %g %g %g %g %06x\n", s->x, s->y, s->z,
+                s->radius, s->height, (unsigned)(s->col & 0xFFFFFF));
+    }
+    fclose(f);
+    printf("saved map to '%s'\n", path);
+}
+
 /* =========================================================================
  *  main loop
  * =======================================================================*/
 int main(int argc, char **argv){
     const char *mappath = (argc > 1) ? argv[1] : "map.txt";
     if(!load_map(mappath)) return 1;
+    snprintf(g_savepath, sizeof g_savepath, "%s.save", mappath);
     F = (W / 2.0f) / tanf(FOV_H * 0.5f);
 
     if(SDL_Init(SDL_INIT_VIDEO) != 0){
@@ -676,6 +704,7 @@ int main(int argc, char **argv){
              "   Tab           : toggle height-edit mode\n"
              "     T / G       :   raise / lower FLOOR   of aimed sector\n"
              "     Y / H       :   raise / lower CEILING of aimed sector\n"
+             "   K             : save edited map (to <mapfile>.save)\n"
              "   Esc           : quit\n\n");
 
     int running = 1, mouse_grabbed = 1;
@@ -695,6 +724,7 @@ int main(int argc, char **argv){
                     SDL_SetRelativeMouseMode(mouse_grabbed ? SDL_TRUE : SDL_FALSE);
                 }
                 if(e.key.keysym.sym == SDLK_TAB) edit_mode = !edit_mode;
+                if(e.key.keysym.sym == SDLK_k)   save_map(g_savepath);
             }
         }
 

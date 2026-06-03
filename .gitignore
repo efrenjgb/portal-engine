@@ -2,3 +2,6 @@
 build_engine
 *.o
 *.dSYM/
+
+# maps saved from the in-engine editor
+*.save

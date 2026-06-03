@@ -1,0 +1,276 @@
+#include "Renderer.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+
+// ---- procedural textures (file-local) --------------------------------------
+static uint32_t texSample(uint32_t base, float u, float v){     // brick walls
+    const float bw = 1.0f, bh = 0.5f;
+    float vv  = v / bh;
+    int   row = (int)std::floor(vv);
+    float fu  = u / bw + ((row & 1) ? 0.5f : 0.0f);
+    float du  = fu - std::floor(fu);
+    float dv  = vv - std::floor(vv);
+    if(du < 0.06f || dv < 0.10f) return 0xFF2c2c2c;             // mortar
+    unsigned id = (unsigned)((int)std::floor(fu) * 73856093) ^ (unsigned)(row * 19349663);
+    id = id * 1103515245u + 12345u;
+    float var = 0.82f + 0.18f * ((id >> 16) & 255) / 255.0f;
+    return shade(base, var);
+}
+
+static uint32_t planeTex(uint32_t base, float wx, float wy){   // tiled floors
+    const float tile = 1.0f;
+    float fu = wx/tile - std::floor(wx/tile);
+    float fv = wy/tile - std::floor(wy/tile);
+    if(fu < 0.04f || fv < 0.04f) return 0xFF1c1c1c;            // grout
+    int checker = (((int)std::floor(wx/tile)) + ((int)std::floor(wy/tile))) & 1;
+    return shade(base, checker ? 1.0f : 0.80f);
+}
+
+static uint32_t spriteTex(uint32_t base, float u, float v){    // barrel/drum
+    float cu = (u - 0.5f) * 2.0f;
+    const float r = 0.82f;
+    if(std::fabs(cu) > r || v < 0.0f || v > 1.0f) return 0;     // transparent
+    float round = std::sqrt(1.0f - (cu/r)*(cu/r));
+    float f = 0.45f + 0.55f * round;
+    if(v < 0.06f || v > 0.95f ||
+       std::fabs(v-0.30f) < 0.04f || std::fabs(v-0.70f) < 0.04f) f *= 0.55f;
+    return shade(base, f);
+}
+
+// ---- Renderer --------------------------------------------------------------
+Renderer::Renderer()
+    : F_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
+      fb_(W*H), zbuf_(W*H), ytop_(W), ybot_(W) {}
+
+void Renderer::clear(uint32_t bg){ std::fill(fb_.begin(), fb_.end(), bg); }
+
+void Renderer::putpx(int x, int y, uint32_t c){
+    if(x >= 0 && x < W && y >= 0 && y < H) fb_[y*W + x] = c;
+}
+void Renderer::line2d(int x0, int y0, int x1, int y1, uint32_t c){
+    int dx = std::abs(x1-x0), sx = x0<x1?1:-1, dy = -std::abs(y1-y0), sy = y0<y1?1:-1, e = dx+dy;
+    for(;;){ putpx(x0,y0,c); if(x0==x1 && y0==y1) break;
+        int e2 = 2*e; if(e2 >= dy){ e += dy; x0 += sx; } if(e2 <= dx){ e += dx; y0 += sy; } }
+}
+
+void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
+                        int clipT, int clipB, float u, uint32_t base, float depth){
+    int y0 = std::max((int)yTopf, clipT);
+    int y1 = std::min((int)yBotf, clipB);
+    if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
+    float span = yBotf - yTopf; if(span == 0) span = 1.0f;
+    float fade = distFade(depth);
+    for(int y = y0; y <= y1; ++y){
+        float fy = (y - yTopf) / span;
+        float v  = vTop + (vBot - vTop) * fy;
+        fb_[y*W + x]   = shade(texSample(base, u, v), fade);
+        zbuf_[y*W + x] = depth;
+    }
+}
+
+void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base){
+    if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
+    float h = pz - P.z;
+    for(int y = y0; y <= y1; ++y){
+        float denom = (H * 0.5f - y) - P.pitch * F_;
+        float tz = h * F_ / denom;
+        if(tz <= 0.0001f) continue;
+        float tx = (x - W * 0.5f) * tz / F_;
+        float wx = P.x + P.vcos * tz + P.vsin * tx;
+        float wy = P.y + P.vsin * tz - P.vcos * tx;
+        fb_[y*W + x]   = shade(planeTex(base, wx, wy), distFade(tz));
+        zbuf_[y*W + x] = tz;
+    }
+}
+
+void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
+    for(int x = 0; x < W; ++x){ ytop_[x] = 0; ybot_[x] = H-1; }
+    std::fill(zbuf_.begin(), zbuf_.end(), 1e9f);
+    std::vector<char> seen(map.sectors.size(), 0);
+
+    struct Item { int sect, sx1, sx2; };
+    Item queue[64];
+    int head = 0, tail = 0, count = 0;
+    queue[head] = { playerSector, 0, W-1 };
+    head = (head+1) & 63; count++;
+
+    while(count > 0){
+        Item now = queue[tail];
+        tail = (tail+1) & 63; count--;
+        if(seen[now.sect]) continue;
+        seen[now.sect] = 1;
+        const Sector& sec = map.sectors[now.sect];
+        int n = (int)sec.vert.size();
+
+        for(int s = 0; s < n; ++s){
+            Vec2 a = sec.vert[s], b = sec.vert[(s+1) % n];
+
+            float vx1 = a.x - P.x, vy1 = a.y - P.y;
+            float vx2 = b.x - P.x, vy2 = b.y - P.y;
+            float tx1 = vx1*P.vsin - vy1*P.vcos, tz1 = vx1*P.vcos + vy1*P.vsin;
+            float tx2 = vx2*P.vsin - vy2*P.vcos, tz2 = vx2*P.vcos + vy2*P.vsin;
+
+            float wlen = std::sqrt((b.x-a.x)*(b.x-a.x) + (b.y-a.y)*(b.y-a.y));
+            float u1 = 0.0f, u2 = wlen;
+
+            if(tz1 <= 0 && tz2 <= 0) continue;               // fully behind us
+
+            float cross = tx1*tz2 - tx2*tz1;                 // back-face cull
+            if(cross <= 0) continue;
+
+            const float NEARZ = 1e-4f;                       // near-plane clip
+            if(tz1 < NEARZ || tz2 < NEARZ){
+                float dz = tz2 - tz1;
+                if(std::fabs(dz) < 1e-7f){
+                    if(tz1 < NEARZ) tz1 = NEARZ;
+                    if(tz2 < NEARZ) tz2 = NEARZ;
+                } else {
+                    if(tz1 < NEARZ){ float t = (NEARZ - tz1) / dz;        tx1 += (tx2-tx1)*t; u1 += (u2-u1)*t; tz1 = NEARZ; }
+                    if(tz2 < NEARZ){ float t = (NEARZ - tz2) / (tz1-tz2); tx2 += (tx1-tx2)*t; u2 += (u1-u2)*t; tz2 = NEARZ; }
+                }
+            }
+
+            // project: screen_x = W/2 + tx*F/tz (not mirrored)
+            float xs1 = F_ / tz1, xs2 = F_ / tz2;
+            int   x1  = (int)(W/2 + tx1 * xs1);
+            int   x2  = (int)(W/2 + tx2 * xs2);
+            if(x1 > x2){                                      // front faces come out R-to-L
+                std::swap(x1, x2); std::swap(tz1, tz2); std::swap(xs1, xs2); std::swap(u1, u2);
+            }
+            if(x1 >= x2) continue;
+            if(x2 < now.sx1 || x1 > now.sx2) continue;
+
+            float yc = sec.ceil  - P.z;
+            float yf = sec.floor - P.z;
+            int   nb = sec.neigh[s];
+            float nyc = 0, nyf = 0;
+            if(nb >= 0){ nyc = map.sectors[nb].ceil - P.z; nyf = map.sectors[nb].floor - P.z; }
+
+            auto YPROJ = [&](float hgt, float tz, float sc){ return H/2.0f - (hgt + tz*P.pitch) * sc; };
+            float y1a = YPROJ(yc , tz1, xs1), y1b = YPROJ(yf , tz1, xs1);
+            float y2a = YPROJ(yc , tz2, xs2), y2b = YPROJ(yf , tz2, xs2);
+            float n1a = YPROJ(nyc, tz1, xs1), n1b = YPROJ(nyf, tz1, xs1);
+            float n2a = YPROJ(nyc, tz2, xs2), n2b = YPROJ(nyf, tz2, xs2);
+
+            float iz1 = 1.0f/tz1, iz2 = 1.0f/tz2;
+            float uoz1 = u1*iz1, uoz2 = u2*iz2;
+
+            int beginx = std::max(x1, now.sx1), endx = std::min(x2, now.sx2);
+            float invspan = 1.0f / (float)(x2 - x1);
+
+            for(int x = beginx; x <= endx; ++x){
+                float t   = (x - x1) * invspan;
+                float iz  = iz1 + (iz2 - iz1) * t;
+                float dep = 1.0f / iz;
+                float u   = (uoz1 + (uoz2 - uoz1) * t) / iz;
+
+                float yaf = y1a + (y2a - y1a) * t;
+                float ybf = y1b + (y2b - y1b) * t;
+                int   wt  = ytop_[x], wb = ybot_[x];
+
+                int cya = clampi((int)yaf, wt, wb);
+                int cyb = clampi((int)ybf, wt, wb);
+
+                planeSpan(P, x, wt, cya-1, sec.ceil,  sec.ceilCol);
+                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol);
+
+                if(nb < 0){
+                    wallSpan(x, yaf, ybf, sec.ceil, sec.floor, wt, wb, u, sec.wallCol, dep);
+                } else {
+                    float naf = n1a + (n2a - n1a) * t;
+                    float nbf = n1b + (n2b - n1b) * t;
+                    wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep);
+                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep);
+                    ytop_[x] = clampi(std::max((int)yaf, (int)naf), wt, H-1);
+                    ybot_[x] = clampi(std::min((int)ybf, (int)nbf), 0,  wb);
+                }
+            }
+
+            if(nb >= 0 && endx >= beginx && count < 63){
+                queue[head] = { nb, beginx, endx };
+                head = (head+1) & 63; count++;
+            }
+        }
+    }
+}
+
+void Renderer::drawSprites(const Map& map, const Camera& P){
+    int ns = (int)map.sprites.size();
+    std::vector<int> order(ns);
+    std::vector<float> depth(ns);
+    for(int i = 0; i < ns; ++i){
+        float rx = map.sprites[i].pos.x - P.x, ry = map.sprites[i].pos.y - P.y;
+        depth[i] = rx*P.vcos + ry*P.vsin;
+        order[i] = i;
+    }
+    for(int i = 1; i < ns; ++i){                  // insertion sort, far to near
+        int k = order[i]; float d = depth[k]; int j = i-1;
+        while(j >= 0 && depth[order[j]] < d){ order[j+1] = order[j]; --j; }
+        order[j+1] = k;
+    }
+
+    for(int o = 0; o < ns; ++o){
+        const Sprite& sp = map.sprites[order[o]];
+        float rx = sp.pos.x - P.x, ry = sp.pos.y - P.y;
+        float tz = rx*P.vcos + ry*P.vsin;
+        if(tz < 0.2f) continue;
+        float tx = rx*P.vsin - ry*P.vcos;
+
+        float sc  = F_ / tz;
+        float cx  = W*0.5f + tx * sc;
+        float yfeet = H*0.5f - ((sp.z             - P.z) + tz*P.pitch) * sc;
+        float ytopf = H*0.5f - ((sp.z + sp.height - P.z) + tz*P.pitch) * sc;
+        float wpx = sp.radius * sc;
+
+        int x0 = (int)(cx - wpx), x1 = (int)(cx + wpx);
+        int yt = (int)ytopf,      yb = (int)yfeet;
+        if(x1 <= x0 || yb <= yt) continue;
+        float fade = distFade(tz);
+
+        for(int x = std::max(x0,0); x <= std::min(x1,W-1); ++x){
+            float uu = (x - x0) / (float)(x1 - x0);
+            for(int y = std::max(yt,0); y <= std::min(yb,H-1); ++y){
+                if(tz >= zbuf_[y*W + x]) continue;
+                float vv = (y - yt) / (float)(yb - yt);
+                uint32_t c = spriteTex(sp.col, uu, vv);
+                if(c) fb_[y*W + x] = shade(c, fade);
+            }
+        }
+    }
+}
+
+void Renderer::drawMinimap(const Map& map, const Camera& P, int pickSector,
+                           Vec2 start, float startAngle){
+    const float sc = 7.0f; const int ox = 14, oy = 14, maxy = 20;
+    auto MX = [&](float wx){ return ox + (int)(wx * sc); };
+    auto MY = [&](float wy){ return oy + (int)((maxy - wy) * sc); };   // north up
+
+    for(int i = 0; i < (int)map.sectors.size(); ++i){
+        const Sector& s = map.sectors[i];
+        int np = (int)s.vert.size();
+        for(int w = 0; w < np; ++w){
+            Vec2 a = s.vert[w], b = s.vert[(w+1) % np];
+            uint32_t c = (s.neigh[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
+            if(i == pickSector) c = 0xFFff30ff;
+            line2d(MX(a.x), MY(a.y), MX(b.x), MY(b.y), c);
+        }
+    }
+    for(const Sprite& s : map.sprites){
+        int sx = MX(s.pos.x), sy = MY(s.pos.y);
+        for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(sx+dx, sy+dy, s.col);
+    }
+    {   // stored player start = cyan
+        int sx = MX(start.x), sy = MY(start.y);
+        line2d(sx, sy, MX(start.x + std::cos(startAngle)*1.2f),
+                       MY(start.y + std::sin(startAngle)*1.2f), 0xFF20e0ff);
+        putpx(sx, sy, 0xFF20e0ff);
+    }
+    int px = MX(P.x), py = MY(P.y);
+    line2d(px, py, MX(P.x + P.vcos*1.6f), MY(P.y + P.vsin*1.6f), 0xFFffd040);
+    for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(px+dx, py+dy, 0xFFff4040);
+}
+
+void Renderer::crosshair(uint32_t col){
+    for(int i = -5; i <= 5; ++i){ putpx(W/2+i, H/2, col); putpx(W/2, H/2+i, col); }
+}

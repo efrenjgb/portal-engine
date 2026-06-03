@@ -1,20 +1,32 @@
 # A tiny Build-engine-style portal renderer
 
-A ~450-line C + SDL2 prototype that renders a 3D scene the way Ken Silverman's
+A small C++17 + SDL2 prototype that renders a 3D scene the way Ken Silverman's
 **BUILD** engine (Duke Nukem 3D, Shadow Warrior, Blood) did — using **sectors,
-walls, and a portal flood**, with no z-buffer and no BSP tree.
+walls, and a portal flood**, with no BSP tree.
 
 ```sh
-make run                 # builds with sdl2-config and launches map.txt
-# or:
-cc build_engine.c -o build_engine $(sdl2-config --cflags --libs) -lm
+make run                 # builds (c++ -std=c++17, sdl2-config) and launches map.txt
 ./build_engine [mapfile] # defaults to ./map.txt
 ```
 
 The world is read from a **text map file** (`map.txt`) at startup, so you can
-edit the level without touching the C. See the comments at the top of `map.txt`
+edit the level without touching the code. See the comments at the top of `map.txt`
 for the format (sectors with floor/ceiling heights and colours, walls with
 per-vertex neighbour links, sprites, and the player start).
+
+### Code layout
+
+| File | Responsibility |
+|---|---|
+| `Vec2.h` | value math + colour helpers (`shade`, `distFade`) |
+| `Camera.h` | the camera pose (position, yaw, pitch) |
+| `Map.h` / `Map.cpp` | `Sector`/`Sprite`/`Map` data + text load/save |
+| `Renderer.h` / `Renderer.cpp` | portal flood, floor casting, sprites, minimap (no SDL) |
+| `Player.h` / `Player.cpp` | movement, collision, sector picking |
+| `main.cpp` | SDL window/input, the editor, the main loop |
+
+The renderer only touches a pixel buffer, never SDL, so it could be unit-tested
+headlessly. (Originally this was a single C file; see the git history.)
 
 **Controls:** `WASD`/arrows move & strafe · mouse looks (turn + pitch) ·
 `Q`/`E` turn · `R`/`F` pitch · `M` release mouse · `Esc` quit.

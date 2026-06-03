@@ -37,10 +37,18 @@ std::optional<Map> loadMap(const std::string& path){
             cur = (int)m.sectors.size() - 1;
         } else if(!strcmp(kw, "wall")){
             if(cur < 0){ fprintf(stderr, "map:%d wall before sector\n", ln); fclose(f); return std::nullopt; }
-            float x, y; int nb;
-            if(sscanf(p, "%*s %f %f %d", &x, &y, &nb) != 3){ fprintf(stderr, "map:%d bad wall\n", ln); fclose(f); return std::nullopt; }
+            float x, y; int nb; TexXform tx;
+            int got = sscanf(p, "%*s %f %f %d %f %f %f %f", &x, &y, &nb,
+                             &tx.us, &tx.vs, &tx.uo, &tx.vo);
+            if(got != 3 && got != 7){ fprintf(stderr, "map:%d bad wall\n", ln); fclose(f); return std::nullopt; }
             m.sectors[cur].vert.push_back({x, y});
             m.sectors[cur].neigh.push_back(nb);
+            m.sectors[cur].wallTex.push_back(tx);
+        } else if(!strcmp(kw, "floortex") || !strcmp(kw, "ceiltex")){
+            if(cur < 0){ fprintf(stderr, "map:%d %s before sector\n", ln, kw); fclose(f); return std::nullopt; }
+            TexXform tx;
+            if(sscanf(p, "%*s %f %f %f %f", &tx.us, &tx.vs, &tx.uo, &tx.vo) != 4){ fprintf(stderr, "map:%d bad %s\n", ln, kw); fclose(f); return std::nullopt; }
+            if(kw[0] == 'f') m.sectors[cur].floorTex = tx; else m.sectors[cur].ceilTex = tx;
         } else if(!strcmp(kw, "sprite")){
             float x, y, z, r, h; unsigned col;
             if(sscanf(p, "%*s %f %f %f %f %f %x", &x, &y, &z, &r, &h, &col) != 6){ fprintf(stderr, "map:%d bad sprite\n", ln); fclose(f); return std::nullopt; }
@@ -76,8 +84,18 @@ bool saveMap(const Map& m, const std::string& path){
                 (unsigned)(s.floorCol & 0xFFFFFF),
                 (unsigned)(s.ceilCol  & 0xFFFFFF),
                 (unsigned)(s.wallCol  & 0xFFFFFF));
-        for(size_t w = 0; w < s.vert.size(); ++w)
-            fprintf(f, "  wall %g %g %d\n", s.vert[w].x, s.vert[w].y, s.neigh[w]);
+        for(size_t w = 0; w < s.vert.size(); ++w){
+            const TexXform& tx = s.wallTex[w];
+            if(tx.isDefault())
+                fprintf(f, "  wall %g %g %d\n", s.vert[w].x, s.vert[w].y, s.neigh[w]);
+            else
+                fprintf(f, "  wall %g %g %d %g %g %g %g\n", s.vert[w].x, s.vert[w].y,
+                        s.neigh[w], tx.us, tx.vs, tx.uo, tx.vo);
+        }
+        if(!s.floorTex.isDefault())
+            fprintf(f, "  floortex %g %g %g %g\n", s.floorTex.us, s.floorTex.vs, s.floorTex.uo, s.floorTex.vo);
+        if(!s.ceilTex.isDefault())
+            fprintf(f, "  ceiltex %g %g %g %g\n", s.ceilTex.us, s.ceilTex.vs, s.ceilTex.uo, s.ceilTex.vo);
         fprintf(f, "\n");
     }
     for(const Sprite& s : m.sprites)

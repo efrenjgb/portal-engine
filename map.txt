@@ -5,9 +5,15 @@
 #
 #    player <x> <y> <sector> <angle_deg>
 #    sector <floor> <ceil> <floorcol> <ceilcol> <wallcol>   colours = RRGGBB hex
-#      wall <x> <y> <neighbour>     one per vertex, in CCW order;
-#                                   neighbour = sector on the far side, -1 = solid
+#      wall <x> <y> <neighbour> [us vs uo vo]   one per vertex, CCW;
+#                                   neighbour = sector on the far side, -1 = solid;
+#                                   optional texture xform (scale us/vs, pan uo/vo)
+#      floortex <us> <vs> <uo> <vo>             optional floor texture xform
+#      ceiltex  <us> <vs> <uo> <vo>             optional ceiling texture xform
 #    sprite <x> <y> <z> <radius> <height> <col>             z = feet height
+#
+#  Texture xform: sample = world/scale + offset. Bigger scale = bigger texture
+#  (fewer repeats). Defaults us=vs=1, uo=vo=0. Edit live in-engine, then save.
 #
 #  A wall runs from its vertex to the next vertex of the same sector. A portal
 #  (neighbour >= 0) opens from max(floorA,floorB) up to min(ceilA,ceilB); the

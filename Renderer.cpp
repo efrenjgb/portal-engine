@@ -66,16 +66,17 @@ void Renderer::line2d(int x0, int y0, int x1, int y1, uint32_t c){
 
 void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
                         int clipT, int clipB, float u, uint32_t base, float depth,
-                        [[maybe_unused]] uint32_t surf){
+                        [[maybe_unused]] uint32_t surf, const TexXform& tx){
     int y0 = std::max((int)yTopf, clipT);
     int y1 = std::min((int)yBotf, clipB);
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float span = yBotf - yTopf; if(span == 0) span = 1.0f;
     float fade = distFade(depth);
+    float su = u / tx.us + tx.uo;                 // texture coord along the wall
     for(int y = y0; y <= y1; ++y){
         float fy = (y - yTopf) / span;
-        float v  = vTop + (vBot - vTop) * fy;
-        fb_[y*W + x]      = shade(texSample(base, u, v), fade);
+        float v  = (vTop + (vBot - vTop) * fy) / tx.vs + tx.vo;
+        fb_[y*W + x]      = shade(texSample(base, su, v), fade);
         zbuf_[y*W + x]    = depth;
 #if EDITOR
         pickbuf_[y*W + x] = surf;
@@ -84,17 +85,18 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
 }
 
 void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base,
-                         [[maybe_unused]] uint32_t surf){
+                         [[maybe_unused]] uint32_t surf, const TexXform& tx){
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float h = pz - P.z;
     for(int y = y0; y <= y1; ++y){
         float denom = (H * 0.5f - y) - P.pitch * F_;
         float tz = h * F_ / denom;
         if(tz <= 0.0001f) continue;
-        float tx = (x - W * 0.5f) * tz / F_;
-        float wx = P.x + P.vcos * tz + P.vsin * tx;
-        float wy = P.y + P.vsin * tz - P.vcos * tx;
-        fb_[y*W + x]      = shade(planeTex(base, wx, wy), distFade(tz));
+        float txc = (x - W * 0.5f) * tz / F_;
+        float wx = P.x + P.vcos * tz + P.vsin * txc;
+        float wy = P.y + P.vsin * tz - P.vcos * txc;
+        float sx = wx / tx.us + tx.uo, sy = wy / tx.vs + tx.vo;
+        fb_[y*W + x]      = shade(planeTex(base, sx, sy), distFade(tz));
         zbuf_[y*W + x]    = tz;
 #if EDITOR
         pickbuf_[y*W + x] = surf;
@@ -193,17 +195,18 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 int cya = clampi((int)yaf, wt, wb);
                 int cyb = clampi((int)ybf, wt, wb);
 
-                planeSpan(P, x, wt, cya-1, sec.ceil,  sec.ceilCol,  packSurf(now.sect, SurfaceRef::Ceiling, 0));
-                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol, packSurf(now.sect, SurfaceRef::Floor,   0));
+                planeSpan(P, x, wt, cya-1, sec.ceil,  sec.ceilCol,  packSurf(now.sect, SurfaceRef::Ceiling, 0), sec.ceilTex);
+                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol, packSurf(now.sect, SurfaceRef::Floor,   0), sec.floorTex);
 
                 uint32_t wsurf = packSurf(now.sect, SurfaceRef::Wall, s);
+                const TexXform& wtx = sec.wallTex[s];
                 if(nb < 0){
-                    wallSpan(x, yaf, ybf, sec.ceil, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf);
+                    wallSpan(x, yaf, ybf, sec.ceil, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx);
                 } else {
                     float naf = n1a + (n2a - n1a) * t;
                     float nbf = n1b + (n2b - n1b) * t;
-                    wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep, wsurf);
-                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf);
+                    wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep, wsurf, wtx);
+                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx);
                     ytop_[x] = clampi(std::max((int)yaf, (int)naf), wt, H-1);
                     ybot_[x] = clampi(std::min((int)ybf, (int)nbf), 0,  wb);
                 }

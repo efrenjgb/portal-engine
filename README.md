@@ -36,8 +36,9 @@ headlessly. (Originally this was a single C file; see the git history.)
 
 **Controls:** `WASD`/arrows move & strafe · mouse looks (turn + pitch) ·
 `Q`/`E` turn · `R`/`F` pitch · `M` release mouse · `Esc` quit.
-`Tab` toggles **height-edit mode**: `T`/`G` raise/lower the *floor* and `Y`/`H`
-raise/lower the *ceiling* of whatever sector you're aiming at. `P` sets the
+`Tab` toggles **edit mode**, which acts on the surface under the crosshair:
+`T`/`G` raise/lower the sector *floor*, `Y`/`H` the *ceiling*; `[`/`]` shrink/grow
+the texture, `;`/`'` pan it horizontally and `,`/`.` vertically. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the
 edited world to `<mapfile>.save` (reload it with `./build_engine <mapfile>.save`).
 The green lines on the top-left minimap are **portals**; grey lines are solid
@@ -59,7 +60,7 @@ Both are "2.5D": the world is fundamentally a 2D floor plan, and walls are alway
 vertical. That constraint is what makes the math cheap enough for a 1996 CPU —
 and what makes it a great thing to learn from.
 
-## The nine techniques in this prototype
+## The ten techniques in this prototype
 
 **1. Sectors & walls (`Sector` struct, the map data).**
 The world is just three polygons. Each has a `floor`/`ceil` height and a list of
@@ -146,6 +147,15 @@ at, even through a doorway or window. Press `Tab` and `T`/`G`, `Y`/`H` change th
 aimed sector's floor/ceiling in real time (nothing is precomputed — the next
 frame just renders the new heights). The pick is the groundwork for per-surface
 editing like textures: it's specific down to the individual wall.
+
+**10. Per-surface texture wrapping (`TexXform`).**
+Every wall and every sector floor/ceiling carries a texture transform
+`{us, vs, uo, vo}` — scale and offset. The samplers map `world / scale + offset`,
+so larger scale stretches the texture (fewer repeats) and the offset pans it.
+In edit mode the texture keys (`[` `]` `;` `'` `,` `.`) adjust the transform of
+the exact surface under the crosshair (from the pick buffer), and it's saved
+per-surface in the map file. Defaults (`1,1,0,0`) reproduce the world-locked
+tiling, so existing maps look unchanged.
 
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
 thrown in so it reads as a room rather than flat colours.

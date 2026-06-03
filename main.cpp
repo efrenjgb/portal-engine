@@ -46,9 +46,12 @@ int main(int argc, char** argv){
              "   M             : release / recapture mouse\n",
              EDITOR ? "" : "  [play build]");
 #if EDITOR
-    printf("   Tab           : toggle height-edit mode\n"
+    printf("   Tab           : toggle edit mode\n"
              "     T / G       :   raise / lower FLOOR   of aimed sector\n"
              "     Y / H       :   raise / lower CEILING of aimed sector\n"
+             "     [ / ]       :   shrink / grow texture on aimed surface\n"
+             "     ; / '       :   pan texture horizontally\n"
+             "     , / .       :   pan texture vertically\n"
              "   P             : set player start to current position\n"
              "   K             : save edited map (to <mapfile>.save)\n");
 #endif
@@ -126,6 +129,23 @@ int main(int argc, char** argv){
             if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
             if(ks[SDL_SCANCODE_Y]) t.ceil  = std::min(t.ceil  + rate,  18.0f);
             if(ks[SDL_SCANCODE_H]) t.ceil  = std::max(t.ceil  - rate,  t.floor + 0.3f);
+
+            // texture wrap/pan on the exact surface under the crosshair
+            TexXform* tx = nullptr;
+            if(aim.kind == SurfaceRef::Wall && aim.wall < (int)t.wallTex.size()) tx = &t.wallTex[aim.wall];
+            else if(aim.kind == SurfaceRef::Floor)   tx = &t.floorTex;
+            else if(aim.kind == SurfaceRef::Ceiling) tx = &t.ceilTex;
+            if(tx){
+                float pan = 1.5f * dt, sf = 1.0f + 1.5f * dt;
+                if(ks[SDL_SCANCODE_RIGHTBRACKET]){ tx->us *= sf; tx->vs *= sf; }
+                if(ks[SDL_SCANCODE_LEFTBRACKET]) { tx->us /= sf; tx->vs /= sf; }
+                tx->us = clampf(tx->us, 0.1f, 16.0f);
+                tx->vs = clampf(tx->vs, 0.1f, 16.0f);
+                if(ks[SDL_SCANCODE_APOSTROPHE]) tx->uo += pan;
+                if(ks[SDL_SCANCODE_SEMICOLON])  tx->uo -= pan;
+                if(ks[SDL_SCANCODE_PERIOD])     tx->vo += pan;
+                if(ks[SDL_SCANCODE_COMMA])      tx->vo -= pan;
+            }
         }
         // report the targeted surface when it changes (groundwork for texturing)
         static int lastK = -1, lastS = -1, lastW = -1;

@@ -37,7 +37,7 @@ headlessly. (Originally this was a single C file; see the git history.)
 **Controls:** `WASD`/arrows move & strafe · mouse looks (turn + pitch) ·
 `Q`/`E` turn · `R`/`F` pitch · `Space` jump · `M` release mouse · `Esc` quit.
 `Tab` toggles **edit mode**, which acts on the surface under the crosshair:
-`T`/`G` raise/lower the sector *floor*, `Y`/`H` the *ceiling*; `[`/`]` shrink/grow
+`T`/`G` raise/lower the *floor or ceiling* you're aiming at; `[`/`]` shrink/grow
 the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, and `N` cycles
 the surface's image texture. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the

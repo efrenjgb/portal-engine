@@ -58,8 +58,7 @@ int main(int argc, char** argv){
              EDITOR ? "" : "  [play build]");
 #if EDITOR
     printf("   Tab           : toggle edit mode\n"
-             "     T / G       :   raise / lower FLOOR   of aimed sector\n"
-             "     Y / H       :   raise / lower CEILING of aimed sector\n"
+             "     T / G       :   raise / lower the FLOOR or CEILING you aim at\n"
              "     [ / ]       :   shrink / grow texture on aimed surface\n"
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
@@ -150,10 +149,14 @@ int main(int argc, char** argv){
         if(editMode && aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
             Sector& t = map.sectors[aim.sector];
             float rate = 2.0f * dt;
-            if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceil - 0.3f);
-            if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
-            if(ks[SDL_SCANCODE_Y]) t.ceil  = std::min(t.ceil  + rate,  18.0f);
-            if(ks[SDL_SCANCODE_H]) t.ceil  = std::max(t.ceil  - rate,  t.floor + 0.3f);
+            // T/G raise/lower whichever horizontal surface the crosshair is on
+            if(aim.kind == SurfaceRef::Floor){
+                if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceil - 0.3f);
+                if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
+            } else if(aim.kind == SurfaceRef::Ceiling){
+                if(ks[SDL_SCANCODE_T]) t.ceil = std::min(t.ceil + rate, 18.0f);
+                if(ks[SDL_SCANCODE_G]) t.ceil = std::max(t.ceil - rate, t.floor + 0.3f);
+            }
 
             // texture wrap/pan on the exact surface under the crosshair
             TexXform* tx = nullptr;

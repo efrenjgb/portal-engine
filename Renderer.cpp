@@ -121,7 +121,7 @@ void Renderer::skySpan(const Camera& P, int x, int y0, int y1, int texId,
                        [[maybe_unused]] uint32_t surf){
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     const Texture* img = imageFor(texId);
-    const float SKY_TURNS = 2.0f;                       // image repeats per 360 deg
+    const float SKY_TURNS = 1.0f;                       // one panorama per 360 deg
     float ang = P.angle + std::atan((x - W * 0.5f) / F_);
     float su  = ang * (SKY_TURNS / (2.0f * PI_F));      // tile units, wraps with yaw
     for(int y = y0; y <= y1; ++y){

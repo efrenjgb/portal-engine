@@ -39,7 +39,7 @@ headlessly. (Originally this was a single C file; see the git history.)
 `Tab` toggles **edit mode**, which acts on the surface under the crosshair:
 `T`/`G` raise/lower the *floor or ceiling* you're aiming at; `[`/`]` shrink/grow
 the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, `N` cycles the
-surface's image texture, and `O` toggles a parallax sky on a ceiling. `P` sets the
+surface's image texture, and `O` toggles a static sky backdrop on a ceiling. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the
 edited world to `<mapfile>.save` (reload it with `./build_engine <mapfile>.save`).
 The green lines on the top-left minimap are **portals**; grey lines are solid

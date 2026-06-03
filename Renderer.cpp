@@ -153,16 +153,20 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             float cross = tx1*tz2 - tx2*tz1;                 // back-face cull
             if(cross <= 0) continue;
 
-            const float NEARZ = 1e-4f;                       // near-plane clip
-            if(tz1 < NEARZ || tz2 < NEARZ){
-                float dz = tz2 - tz1;
-                if(std::fabs(dz) < 1e-7f){
-                    if(tz1 < NEARZ) tz1 = NEARZ;
-                    if(tz2 < NEARZ) tz2 = NEARZ;
-                } else {
-                    if(tz1 < NEARZ){ float t = (NEARZ - tz1) / dz;        tx1 += (tx2-tx1)*t; u1 += (u2-u1)*t; tz1 = NEARZ; }
-                    if(tz2 < NEARZ){ float t = (NEARZ - tz2) / (tz1-tz2); tx2 += (tx1-tx2)*t; u2 += (u1-u2)*t; tz2 = NEARZ; }
-                }
+            // Near-plane clip: slide an endpoint that is at/behind the eye up to
+            // tz == NEARZ along the wall. If BOTH are nearer than the plane (you
+            // are right up against a portal) just clamp them — there's nothing to
+            // slide to. NEARZ must be large enough that 1/tz and the projected x
+            // stay numerically sane: a tiny near plane makes a grazing wall's far
+            // corner project to ~million-pixel coords, where float precision is
+            // coarse and the texture jitters as the camera turns.
+            const float NEARZ = NEAR_PLANE;
+            if(tz1 < NEARZ && tz2 < NEARZ){
+                tz1 = NEARZ; tz2 = NEARZ;
+            } else if(tz1 < NEARZ){
+                float t = (NEARZ - tz1) / (tz2 - tz1); tx1 += (tx2-tx1)*t; u1 += (u2-u1)*t; tz1 = NEARZ;
+            } else if(tz2 < NEARZ){
+                float t = (NEARZ - tz2) / (tz1 - tz2); tx2 += (tx1-tx2)*t; u2 += (u1-u2)*t; tz2 = NEARZ;
             }
 
             // project: screen_x = W/2 + tx*F/tz (not mirrored). Keep the edges as

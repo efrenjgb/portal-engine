@@ -11,6 +11,12 @@
 
 constexpr float PI_F = 3.14159265358979323846f;
 
+// Camera near plane. Walls nearer than this are clipped to it. Kept well above
+// zero so 1/z and projected x stay numerically sane (avoids texture jitter on
+// grazing walls). The player is held farther than this off every wall (see
+// keep_inside), so a wall is never *inside* the near plane.
+constexpr float NEAR_PLANE = 0.05f;
+
 struct Vec2 { float x = 0, y = 0; };
 
 inline int   clampi(int v, int lo, int hi){ return v < lo ? lo : (v > hi ? hi : v); }

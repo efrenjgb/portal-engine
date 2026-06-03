@@ -26,12 +26,6 @@ int main(int argc, char** argv){
     player.cam.z     = map.sectors[player.sector].floor + EYE;
     player.cam.update();
 
-    if(argc>2){
-        std::vector<Texture> ts; for(auto&p:map.textures){auto t=loadImage(p);ts.push_back(t?std::move(*t):Texture{});}
-        Renderer r; r.setTextures(&ts);
-        int bad=0; for(int d=0;d<360;d+=20){ player.cam.angle=d*PI_F/180; player.cam.update(); r.clear(0xFF0a0c12); r.renderWorld(map,player.cam,player.sector); int bg=0; for(int i=0;i<Renderer::W*Renderer::H;i++) if(r.pixels()[i]==0xFF0a0c12u) bg++; if(bg>50){bad++; printf("angle %d: %d bg\n",d,bg);} }
-        printf("angles with holes: %d\n", bad); return 0;
-    }
     if(SDL_Init(SDL_INIT_VIDEO) != 0){
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1;
     }

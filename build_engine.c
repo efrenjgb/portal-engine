@@ -107,6 +107,8 @@ static float zbuf[W*H];       /* per-pixel depth of the nearest opaque surface *
 static int   edit_mode = 0;   /* in-engine height editor (toggle with TAB)     */
 static int   g_pick    = -1;  /* sector currently under the crosshair          */
 static char  g_savepath[512]; /* where 'K' writes the edited map                */
+/* player start that gets written on save ('P' stamps it to the current pose)  */
+static float start_x, start_y, start_angle;  static int start_sector;
 
 static uint32_t shade(uint32_t c, float f){
     if(f < 0) f = 0; if(f > 1) f = 1;
@@ -445,6 +447,12 @@ static void draw_minimap(void){
         int sx = MX(sprites[i].x), sy = MY(sprites[i].y);
         for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(sx+dx,sy+dy, sprites[i].col);
     }
+    {                                               /* stored player start = cyan */
+        int sx = MX(start_x), sy = MY(start_y);
+        line2d(sx, sy, MX(start_x + cosf(start_angle)*1.2f),
+                       MY(start_y + sinf(start_angle)*1.2f), 0xFF20e0ff);
+        putpx(sx, sy, 0xFF20e0ff);
+    }
     int px = MX(P.x), py = MY(P.y);
     line2d(px, py, MX(P.x + P.vcos*1.6f), MY(P.y + P.vsin*1.6f), 0xFFffd040);
     for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(px+dx,py+dy,0xFFff4040);
@@ -641,6 +649,7 @@ static int load_map(const char *path){
     if(!have_player || P.sector < 0 || P.sector >= nsectors) P.sector = 0;
     P.z = sectors[P.sector].floor + EYE;
     P.vsin = sinf(P.angle); P.vcos = cosf(P.angle);
+    start_x = P.x; start_y = P.y; start_sector = P.sector; start_angle = P.angle;
     printf("loaded '%s': %d sectors, %d sprites\n", path, nsectors, nsprites);
     return 1;
 fail:
@@ -654,7 +663,7 @@ static void save_map(const char *path){
     if(!f){ fprintf(stderr, "cannot write map '%s'\n", path); return; }
     fprintf(f, "# saved by the build_engine height editor\n\n");
     fprintf(f, "player %g %g %d %g\n\n",
-            P.x, P.y, P.sector, P.angle * 180.0f / (float)M_PI);
+            start_x, start_y, start_sector, start_angle * 180.0f / (float)M_PI);
     for(int i = 0; i < nsectors; ++i){
         Sector *s = &sectors[i];
         fprintf(f, "sector %g %g %06x %06x %06x\n", s->floor, s->ceil,
@@ -704,6 +713,7 @@ int main(int argc, char **argv){
              "   Tab           : toggle height-edit mode\n"
              "     T / G       :   raise / lower FLOOR   of aimed sector\n"
              "     Y / H       :   raise / lower CEILING of aimed sector\n"
+             "   P             : set player start to current position\n"
              "   K             : save edited map (to <mapfile>.save)\n"
              "   Esc           : quit\n\n");
 
@@ -725,6 +735,12 @@ int main(int argc, char **argv){
                 }
                 if(e.key.keysym.sym == SDLK_TAB) edit_mode = !edit_mode;
                 if(e.key.keysym.sym == SDLK_k)   save_map(g_savepath);
+                if(e.key.keysym.sym == SDLK_p){  /* stamp current pose as start */
+                    start_x = P.x; start_y = P.y;
+                    start_sector = P.sector; start_angle = P.angle;
+                    printf("player start set: %.2f %.2f sector %d facing %.0f deg\n",
+                           start_x, start_y, start_sector, start_angle*180.0f/(float)M_PI);
+                }
             }
         }
 

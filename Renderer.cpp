@@ -153,6 +153,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
     // so there's no flood back into the sector we came from.
     constexpr int MAX_VISITS = 12;
     std::vector<char> visits(map.sectors.size(), 0);
+    std::vector<int>  et(W), eb(W);   // per-sector-entry snapshot of the window
 
     struct Item { int sect, sx1, sx2; };
     Item queue[256];
@@ -167,6 +168,12 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
         visits[now.sect]++;
         const Sector& sec = map.sectors[now.sect];
         int n = (int)sec.vert.size();
+
+        // Freeze the incoming window: this sector's own walls clamp to et/eb, so
+        // a portal earlier in the list can't chop a solid wall that comes later
+        // (concave sectors). Portals still shrink the live ytop_/ybot_, which the
+        // sectors we queue inherit; per-pixel depth sorts near vs far in-sector.
+        for(int x = now.sx1; x <= now.sx2; ++x){ et[x] = ytop_[x]; eb[x] = ybot_[x]; }
 
         for(int s = 0; s < n; ++s){
             Vec2 a = sec.vert[s], b = sec.vert[(s+1) % n];
@@ -249,7 +256,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
 
                 float yaf = y1a + (y2a - y1a) * t;
                 float ybf = y1b + (y2b - y1b) * t;
-                int   wt  = ytop_[x], wb = ybot_[x];
+                int   wt  = et[x], wb = eb[x];      // frozen entry window
 
                 int cya = clampi((int)yaf, wt, wb);
                 int cyb = clampi((int)ybf, wt, wb);
@@ -269,8 +276,9 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                     float nbf = n1b + (n2b - n1b) * t;
                     wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep, wsurf, wtx, wid);
                     wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx, wid);
-                    ytop_[x] = clampi(std::max((int)yaf, (int)naf), wt, H-1);
-                    ybot_[x] = clampi(std::min((int)ybf, (int)nbf), 0,  wb);
+                    // shrink the LIVE window (monotonically) for queued children
+                    ytop_[x] = std::max(ytop_[x], clampi(std::max((int)yaf, (int)naf), wt, H-1));
+                    ybot_[x] = std::min(ybot_[x], clampi(std::min((int)ybf, (int)nbf), 0,  wb));
                 }
             }
 

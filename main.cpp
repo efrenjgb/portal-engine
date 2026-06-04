@@ -142,6 +142,9 @@ int main(int argc, char** argv){
     float mvScale = 24.0f, mvOx = 0, mvOy = 0;
     int   mouseX = W/2, mouseY = H/2;
     std::vector<std::pair<int,int>> dragVerts;
+    std::vector<std::vector<Sector>> undo;  // geometry snapshots for undo (Z)
+    auto  pushUndo = [&](){ undo.push_back(map.sectors);
+                            if(undo.size() > 64) undo.erase(undo.begin()); };
     bool  gridSnap = true;                  // snap edits to the unit grid (G)
     float gridSize = 1.0f;
     auto  snap = [&](Vec2 p){ if(gridSnap){ p.x = std::round(p.x/gridSize)*gridSize;
@@ -182,10 +185,11 @@ int main(int argc, char** argv){
                 VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
                 dragVerts.clear();
                 if(v.idx >= 0){                                       // grab a vertex (+coincident)
+                    pushUndo();
                     collectCoincident(map, map.sectors[v.sec].vert[v.idx], dragVerts);
                 } else {                                              // else split the wall here
                     Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
-                    if(w.idx >= 0){ proj = snap(proj); splitWall(map, w.sec, w.idx, proj); collectCoincident(map, proj, dragVerts); }
+                    if(w.idx >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sec, w.idx, proj); collectCoincident(map, proj, dragVerts); }
                 }
             }
             else if(e.type == SDL_MOUSEBUTTONUP && mapView && e.button.button == SDL_BUTTON_LEFT){
@@ -206,6 +210,10 @@ int main(int argc, char** argv){
                 }
                 if(mapView){                       // ---- 2D map-editor keys ----
                     if(k == SDLK_g){ gridSnap = !gridSnap; printf("grid snap %s\n", gridSnap ? "on" : "off"); }
+                    if(k == SDLK_z && !undo.empty()){
+                        map.sectors = undo.back(); undo.pop_back(); dragVerts.clear();
+                        printf("undo (%zu left)\n", undo.size());
+                    }
                 }
                 if(k == SDLK_TAB) editMode = !editMode;
                 if(k == SDLK_n){   // cycle image texture on the aimed surface

@@ -86,7 +86,7 @@ bool saveMap(const Map& m, const std::string& path){
     FILE* f = fopen(path.c_str(), "w");
     if(!f){ fprintf(stderr, "cannot write map '%s'\n", path.c_str()); return false; }
 
-    fprintf(f, "# saved by the build_engine height editor\n\n");
+    fprintf(f, "# saved by the portal_engine height editor\n\n");
     for(const std::string& t : m.textures) fprintf(f, "texture %s\n", t.c_str());
     if(!m.textures.empty()) fprintf(f, "\n");
     fprintf(f, "player %g %g %d %g\n\n",

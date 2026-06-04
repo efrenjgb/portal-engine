@@ -5,11 +5,11 @@ SRCS     = main.cpp Map.cpp Renderer.cpp Player.cpp Texture.cpp stb_image_impl.c
 HDRS     = Vec2.h Camera.h Map.h Renderer.h Player.h Texture.h stb_image.h
 
 # Default build: includes the in-engine editor + pick buffer (Tab to toggle).
-build_engine: $(SRCS) $(HDRS)
-	$(CXX) $(CXXFLAGS) $(SRCS) -o build_engine $(LDFLAGS)
+portal_engine: $(SRCS) $(HDRS)
+	$(CXX) $(CXXFLAGS) $(SRCS) -o portal_engine $(LDFLAGS)
 
-run: build_engine
-	./build_engine
+run: portal_engine
+	./portal_engine
 
 # Stripped "play" build: no editor, no per-pixel pick buffer (-DEDITOR=0).
 # Cleans first so the macro change always takes effect. Run `make clean` (or
@@ -17,9 +17,9 @@ run: build_engine
 play:
 	$(MAKE) clean
 	$(MAKE) EXTRA="-DEDITOR=0"
-	./build_engine
+	./portal_engine
 
 clean:
-	rm -f build_engine
+	rm -f portal_engine
 
 .PHONY: run play clean

@@ -1,5 +1,5 @@
 # compiled binary and build artifacts
-build_engine
+portal_engine
 *.o
 *.dSYM/
 

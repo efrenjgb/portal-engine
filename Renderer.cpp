@@ -140,19 +140,25 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
 #if EDITOR
     std::fill(pickbuf_.begin(), pickbuf_.end(), 0u);
 #endif
-    std::vector<char> seen(map.sectors.size(), 0);
+    // A sector may be visible through more than one portal opening (e.g. once a
+    // doorway portal is split into two sub-portals in the editor), so we draw it
+    // once *per window* rather than only once. A small per-sector visit cap
+    // bounds the work; back-facing portals (the one we came through) are culled,
+    // so there's no flood back into the sector we came from.
+    constexpr int MAX_VISITS = 12;
+    std::vector<char> visits(map.sectors.size(), 0);
 
     struct Item { int sect, sx1, sx2; };
-    Item queue[64];
+    Item queue[256];
     int head = 0, tail = 0, count = 0;
     queue[head] = { playerSector, 0, W-1 };
-    head = (head+1) & 63; count++;
+    head = (head+1) & 255; count++;
 
     while(count > 0){
         Item now = queue[tail];
-        tail = (tail+1) & 63; count--;
-        if(seen[now.sect]) continue;
-        seen[now.sect] = 1;
+        tail = (tail+1) & 255; count--;
+        if(visits[now.sect] >= MAX_VISITS) continue;
+        visits[now.sect]++;
         const Sector& sec = map.sectors[now.sect];
         int n = (int)sec.vert.size();
 
@@ -262,9 +268,9 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 }
             }
 
-            if(nb >= 0 && endx >= beginx && count < 63){
+            if(nb >= 0 && endx >= beginx && visits[nb] < MAX_VISITS && count < 255){
                 queue[head] = { nb, beginx, endx };
-                head = (head+1) & 63; count++;
+                head = (head+1) & 255; count++;
             }
         }
     }
@@ -350,6 +356,48 @@ void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim,
 
 void Renderer::crosshair(uint32_t col){
     for(int i = -5; i <= 5; ++i){ putpx(W/2+i, H/2, col); putpx(W/2, H/2+i, col); }
+}
+
+void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
+                             int hovSec, int hovVert, int hwSec, int hwWall,
+                             Vec2 pp, float pa){
+    auto SX = [&](float wx){ return (int)(ox + wx*sc); };
+    auto SY = [&](float wy){ return (int)(oy - wy*sc); };
+
+    // faint unit grid (only when it won't be a dense mush)
+    if(sc >= 4.0f){
+        int gx0 = (int)std::floor((0 - ox)/sc),     gx1 = (int)std::ceil((W - ox)/sc);
+        int gy0 = (int)std::floor((oy - (H-1))/sc), gy1 = (int)std::ceil((oy - 0)/sc);
+        if(gx1 - gx0 < 400) for(int gx = gx0; gx <= gx1; ++gx) line2d(SX((float)gx), 0, SX((float)gx), H-1, 0xFF15181f);
+        if(gy1 - gy0 < 400) for(int gy = gy0; gy <= gy1; ++gy) line2d(0, SY((float)gy), W-1, SY((float)gy), 0xFF15181f);
+    }
+
+    // walls (portal = green, solid = grey; aimed wall = yellow)
+    for(int s = 0; s < (int)m.sectors.size(); ++s){
+        const Sector& S = m.sectors[s];
+        int n = (int)S.vert.size();
+        for(int w = 0; w < n; ++w){
+            Vec2 a = S.vert[w], b = S.vert[(w+1)%n];
+            uint32_t c = (S.neigh[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
+            if(s == hwSec && w == hwWall) c = 0xFFffe020;
+            line2d(SX(a.x), SY(a.y), SX(b.x), SY(b.y), c);
+        }
+    }
+    // vertices (hovered one is a bigger yellow box)
+    for(int s = 0; s < (int)m.sectors.size(); ++s){
+        const Sector& S = m.sectors[s];
+        for(int i = 0; i < (int)S.vert.size(); ++i){
+            int vx = SX(S.vert[i].x), vy = SY(S.vert[i].y);
+            bool hot = (s == hovSec && i == hovVert);
+            uint32_t c = hot ? 0xFFffe020 : 0xFFdfe6f0;
+            int r = hot ? 3 : 2;
+            for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putpx(vx+dx, vy+dy, c);
+        }
+    }
+    // player marker + facing
+    int px = SX(pp.x), py = SY(pp.y);
+    line2d(px, py, SX(pp.x + std::cos(pa)*1.6f), SY(pp.y + std::sin(pa)*1.6f), 0xFFffd040);
+    for(int dy=-2; dy<=2; ++dy) for(int dx=-2; dx<=2; ++dx) putpx(px+dx, py+dy, 0xFFff4040);
 }
 
 #if EDITOR

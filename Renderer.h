@@ -32,6 +32,12 @@ public:
                      Vec2 start, float startAngle);
     void crosshair(uint32_t col);
 
+    // Full-screen top-down map editor. (sc, ox, oy) map world->screen as
+    // sx = ox + wx*sc, sy = oy - wy*sc. hov*/hw* highlight a vertex / wall.
+    void drawMapEditor(const Map& map, float sc, float ox, float oy,
+                       int hovSec, int hovVert, int hwSec, int hwWall,
+                       Vec2 playerPos, float playerAng);
+
 #if EDITOR
     // What surface did the last renderWorld draw at this pixel? (kind==None if
     // nothing / background). Decoded from the per-pixel pick buffer.

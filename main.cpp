@@ -11,6 +11,70 @@
 #include "Renderer.h"
 #include "Player.h"
 
+#if EDITOR
+// ---- 2D map-editor helpers (operate on the Map's vertices) -----------------
+static bool vclose(Vec2 a, Vec2 b){ float dx=a.x-b.x, dy=a.y-b.y; return dx*dx+dy*dy < 1e-4f; }
+
+struct VHit { int sec = -1, idx = -1; };
+
+// nearest vertex to screen point (within ~8 px)
+static VHit pickVertex(const Map& m, float sc, float ox, float oy, int mx, int my){
+    VHit h; float best = 8.0f*8.0f;
+    for(int s = 0; s < (int)m.sectors.size(); ++s)
+        for(int i = 0; i < (int)m.sectors[s].vert.size(); ++i){
+            float dx = ox + m.sectors[s].vert[i].x*sc - mx;
+            float dy = oy - m.sectors[s].vert[i].y*sc - my;
+            float d = dx*dx + dy*dy;
+            if(d < best){ best = d; h = {s, i}; }
+        }
+    return h;
+}
+// nearest wall to screen point (within ~7 px); proj = foot on that wall in world
+static VHit pickWall(const Map& m, float sc, float ox, float oy, int mx, int my, Vec2& proj){
+    VHit h; float best = 7.0f*7.0f;
+    for(int s = 0; s < (int)m.sectors.size(); ++s){
+        const Sector& S = m.sectors[s];
+        int n = (int)S.vert.size();
+        for(int w = 0; w < n; ++w){
+            Vec2 a = S.vert[w], b = S.vert[(w+1)%n];
+            float ax = ox+a.x*sc, ay = oy-a.y*sc, bx = ox+b.x*sc, by = oy-b.y*sc;
+            float ex = bx-ax, ey = by-ay, L2 = ex*ex+ey*ey; if(L2 < 1e-6f) continue;
+            float t = ((mx-ax)*ex + (my-ay)*ey)/L2; if(t < 0) t = 0; if(t > 1) t = 1;
+            float dx = mx - (ax+ex*t), dy = my - (ay+ey*t);
+            float d = dx*dx + dy*dy;
+            if(d < best){ best = d; h = {s, w}; proj = { a.x + (b.x-a.x)*t, a.y + (b.y-a.y)*t }; }
+        }
+    }
+    return h;
+}
+// every (sector,index) vertex coincident with p — so a drag keeps portals joined
+static void collectCoincident(const Map& m, Vec2 p, std::vector<std::pair<int,int>>& out){
+    for(int s = 0; s < (int)m.sectors.size(); ++s)
+        for(int i = 0; i < (int)m.sectors[s].vert.size(); ++i)
+            if(vclose(m.sectors[s].vert[i], p)) out.push_back({s, i});
+}
+// split wall w of sector s at point p (and the matching wall of a portal neighbour)
+static void splitWall(Map& m, int s, int w, Vec2 p){
+    auto ins = [&](Sector& S, int at){
+        S.vert.insert(S.vert.begin()+at+1, p);
+        S.neigh.insert(S.neigh.begin()+at+1, S.neigh[at]);
+        S.wallTex.insert(S.wallTex.begin()+at+1, S.wallTex[at]);
+        S.wallTexId.insert(S.wallTexId.begin()+at+1, S.wallTexId[at]);
+    };
+    Sector& S = m.sectors[s];
+    int n = (int)S.vert.size();
+    Vec2 a = S.vert[w], b = S.vert[(w+1)%n];
+    int nb = S.neigh[w];
+    ins(S, w);
+    if(nb >= 0){                                   // split the neighbour's matching (reversed) wall
+        Sector& N = m.sectors[nb];
+        int nn = (int)N.vert.size();
+        for(int i = 0; i < nn; ++i)
+            if(vclose(N.vert[i], b) && vclose(N.vert[(i+1)%nn], a)){ ins(N, i); break; }
+    }
+}
+#endif
+
 int main(int argc, char** argv){
     std::string mapPath = (argc > 1) ? argv[1] : "map.txt";
     auto loaded = loadMap(mapPath);
@@ -64,6 +128,7 @@ int main(int argc, char** argv){
              "     , / .       :   pan texture vertically\n"
              "   N             :   cycle image texture on aimed surface\n"
              "   O             :   toggle sky backdrop on aimed ceiling\n"
+             "   Enter         : 2D map view (drag vertices, click a wall to split)\n"
              "   P             : set player start to current position\n"
              "   K             : save edited map (to <mapfile>.save)\n");
 #endif
@@ -71,21 +136,69 @@ int main(int argc, char** argv){
 
     bool running = true, mouseGrabbed = true, editMode = false;
     Uint32 prev = SDL_GetTicks();
+#if EDITOR
+    bool  mapView = false;                 // 2D overhead vertex editor (Enter)
+    float mvScale = 24.0f, mvOx = 0, mvOy = 0;
+    int   mouseX = W/2, mouseY = H/2;
+    std::vector<std::pair<int,int>> dragVerts;
+    auto s2wx = [&](int sx){ return (sx - mvOx) / mvScale; };          // screen->world
+    auto s2wy = [&](int sy){ return (mvOy - sy) / mvScale; };
+    auto fitView = [&](){                                              // frame the whole map
+        float minx=1e9f, miny=1e9f, maxx=-1e9f, maxy=-1e9f;
+        for(auto& S : map.sectors) for(auto& v : S.vert){
+            minx=std::min(minx,v.x); maxx=std::max(maxx,v.x);
+            miny=std::min(miny,v.y); maxy=std::max(maxy,v.y); }
+        float wsp = maxx-minx+1e-3f, hsp = maxy-miny+1e-3f;
+        mvScale = std::min(W/wsp, H/hsp) * 0.85f;
+        mvOx = W*0.5f - (minx+maxx)*0.5f*mvScale;
+        mvOy = H*0.5f + (miny+maxy)*0.5f*mvScale;
+    };
+#endif
 
     while(running){
         float mdx = 0, mdy = 0;
         SDL_Event e;
         while(SDL_PollEvent(&e)){
             if(e.type == SDL_QUIT) running = false;
-            else if(e.type == SDL_MOUSEMOTION && mouseGrabbed){
-                mdx += e.motion.xrel; mdy += e.motion.yrel;
-            } else if(e.type == SDL_KEYDOWN){
+            else if(e.type == SDL_MOUSEMOTION){
+#if EDITOR
+                if(mapView){ mouseX = e.motion.x; mouseY = e.motion.y; } else
+#endif
+                if(mouseGrabbed){ mdx += e.motion.xrel; mdy += e.motion.yrel; }
+            }
+#if EDITOR
+            else if(e.type == SDL_MOUSEWHEEL && mapView){
+                float wx = s2wx(mouseX), wy = s2wy(mouseY);            // zoom toward cursor
+                mvScale = clampf(mvScale * (e.wheel.y > 0 ? 1.15f : e.wheel.y < 0 ? 0.87f : 1.0f), 2.0f, 400.0f);
+                mvOx = mouseX - wx*mvScale; mvOy = mouseY + wy*mvScale;
+            }
+            else if(e.type == SDL_MOUSEBUTTONDOWN && mapView && e.button.button == SDL_BUTTON_LEFT){
+                mouseX = e.button.x; mouseY = e.button.y;
+                VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
+                dragVerts.clear();
+                if(v.idx >= 0){                                       // grab a vertex (+coincident)
+                    collectCoincident(map, map.sectors[v.sec].vert[v.idx], dragVerts);
+                } else {                                              // else split the wall here
+                    Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
+                    if(w.idx >= 0){ splitWall(map, w.sec, w.idx, proj); collectCoincident(map, proj, dragVerts); }
+                }
+            }
+            else if(e.type == SDL_MOUSEBUTTONUP && mapView && e.button.button == SDL_BUTTON_LEFT){
+                dragVerts.clear();
+            }
+#endif
+            else if(e.type == SDL_KEYDOWN){
                 SDL_Keycode k = e.key.keysym.sym;
                 if(k == SDLK_ESCAPE) running = false;
                 if(k == SDLK_SPACE)  player.jump();
                 if(k == SDLK_m){ mouseGrabbed = !mouseGrabbed;
                                  SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE); }
 #if EDITOR
+                if(k == SDLK_RETURN || k == SDLK_KP_ENTER){
+                    mapView = !mapView;
+                    if(mapView) fitView();
+                    SDL_SetRelativeMouseMode((!mapView && mouseGrabbed) ? SDL_TRUE : SDL_FALSE);
+                }
                 if(k == SDLK_TAB) editMode = !editMode;
                 if(k == SDLK_n){   // cycle image texture on the aimed surface
                     SurfaceRef a = renderer.pickAt(W/2, H/2);
@@ -125,10 +238,25 @@ int main(int argc, char** argv){
         if(dt > 0.05f) dt = 0.05f;
         prev = nowt;
 
+        const Uint8* ks = SDL_GetKeyboardState(nullptr);
+        SurfaceRef aim;                       // None in play build / map view
+#if EDITOR
+        if(mapView){
+            float pan = 320.0f * dt;          // arrow keys pan the 2D view
+            if(ks[SDL_SCANCODE_LEFT])  mvOx += pan;
+            if(ks[SDL_SCANCODE_RIGHT]) mvOx -= pan;
+            if(ks[SDL_SCANCODE_UP])    mvOy += pan;
+            if(ks[SDL_SCANCODE_DOWN])  mvOy -= pan;
+            if(!dragVerts.empty()){           // drag held vertex (+ coincident copies)
+                Vec2 wp { s2wx(mouseX), s2wy(mouseY) };
+                for(auto& pr : dragVerts) map.sectors[pr.first].vert[pr.second] = wp;
+            }
+        } else
+#endif
+        {
         // ---- look ----
         player.cam.angle -= mdx * 0.0030f;
         player.cam.pitch += mdy * 0.0018f;
-        const Uint8* ks = SDL_GetKeyboardState(nullptr);
         if(ks[SDL_SCANCODE_Q]) player.cam.angle += 1.8f * dt;
         if(ks[SDL_SCANCODE_E]) player.cam.angle -= 1.8f * dt;
         if(ks[SDL_SCANCODE_R]) player.cam.pitch -= 1.2f * dt;
@@ -152,7 +280,6 @@ int main(int argc, char** argv){
         player.keepInside(map);
 
         // ---- what's under the crosshair + the height editor (editor builds) ----
-        SurfaceRef aim;                       // stays None in a play build
 #if EDITOR
         aim = renderer.pickAt(W/2, H/2);      // from last frame's pick buffer
         if(editMode && aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
@@ -194,16 +321,27 @@ int main(int argc, char** argv){
             lastK = (int)aim.kind; lastS = aim.sector; lastW = aim.wall;
         }
 #endif
-
         player.settleEyeHeight(map, dt);
+        }   // end 3D update branch
 
         // ---- draw ----
         renderer.clear(0xFF0a0c12);
-        renderer.renderWorld(map, player.cam, player.sector);
-        renderer.drawSprites(map, player.cam);
-        renderer.drawMinimap(map, player.cam, editMode ? aim : SurfaceRef{},
-                             map.playerStart, map.startAngle);
-        renderer.crosshair(editMode ? 0xFF40ff40 : 0xFFe0e0e0);
+#if EDITOR
+        if(mapView){
+            VHit hv = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
+            VHit hw; Vec2 proj;
+            if(hv.idx < 0) hw = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
+            renderer.drawMapEditor(map, mvScale, mvOx, mvOy, hv.sec, hv.idx, hw.sec, hw.idx,
+                                   { player.cam.x, player.cam.y }, player.cam.angle);
+        } else
+#endif
+        {
+            renderer.renderWorld(map, player.cam, player.sector);
+            renderer.drawSprites(map, player.cam);
+            renderer.drawMinimap(map, player.cam, editMode ? aim : SurfaceRef{},
+                                 map.playerStart, map.startAngle);
+            renderer.crosshair(editMode ? 0xFF40ff40 : 0xFFe0e0e0);
+        }
 
         SDL_UpdateTexture(tex, nullptr, renderer.pixels(), W * sizeof(uint32_t));
         SDL_RenderClear(ren);

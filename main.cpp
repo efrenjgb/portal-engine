@@ -2,6 +2,7 @@
 // input/update/render loop, and host the in-engine height editor.
 #include <SDL.h>
 #include <cstdio>
+#include <cmath>
 #include <string>
 #include <utility>
 #include <algorithm>
@@ -141,6 +142,10 @@ int main(int argc, char** argv){
     float mvScale = 24.0f, mvOx = 0, mvOy = 0;
     int   mouseX = W/2, mouseY = H/2;
     std::vector<std::pair<int,int>> dragVerts;
+    bool  gridSnap = true;                  // snap edits to the unit grid (G)
+    float gridSize = 1.0f;
+    auto  snap = [&](Vec2 p){ if(gridSnap){ p.x = std::round(p.x/gridSize)*gridSize;
+                                            p.y = std::round(p.y/gridSize)*gridSize; } return p; };
     auto s2wx = [&](int sx){ return (sx - mvOx) / mvScale; };          // screen->world
     auto s2wy = [&](int sy){ return (mvOy - sy) / mvScale; };
     auto fitView = [&](){                                              // frame the whole map
@@ -180,7 +185,7 @@ int main(int argc, char** argv){
                     collectCoincident(map, map.sectors[v.sec].vert[v.idx], dragVerts);
                 } else {                                              // else split the wall here
                     Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
-                    if(w.idx >= 0){ splitWall(map, w.sec, w.idx, proj); collectCoincident(map, proj, dragVerts); }
+                    if(w.idx >= 0){ proj = snap(proj); splitWall(map, w.sec, w.idx, proj); collectCoincident(map, proj, dragVerts); }
                 }
             }
             else if(e.type == SDL_MOUSEBUTTONUP && mapView && e.button.button == SDL_BUTTON_LEFT){
@@ -198,6 +203,9 @@ int main(int argc, char** argv){
                     mapView = !mapView;
                     if(mapView) fitView();
                     SDL_SetRelativeMouseMode((!mapView && mouseGrabbed) ? SDL_TRUE : SDL_FALSE);
+                }
+                if(mapView){                       // ---- 2D map-editor keys ----
+                    if(k == SDLK_g){ gridSnap = !gridSnap; printf("grid snap %s\n", gridSnap ? "on" : "off"); }
                 }
                 if(k == SDLK_TAB) editMode = !editMode;
                 if(k == SDLK_n){   // cycle image texture on the aimed surface
@@ -248,7 +256,7 @@ int main(int argc, char** argv){
             if(ks[SDL_SCANCODE_UP])    mvOy += pan;
             if(ks[SDL_SCANCODE_DOWN])  mvOy -= pan;
             if(!dragVerts.empty()){           // drag held vertex (+ coincident copies)
-                Vec2 wp { s2wx(mouseX), s2wy(mouseY) };
+                Vec2 wp = snap({ s2wx(mouseX), s2wy(mouseY) });
                 for(auto& pr : dragVerts) map.sectors[pr.first].vert[pr.second] = wp;
             }
         } else

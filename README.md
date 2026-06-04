@@ -151,7 +151,12 @@ wall into solid–portal–solid segments in the map data.
 
 **8. Sprites (billboards) with a per-pixel depth buffer (`draw_sprites`).**
 Items/monsters are flat camera-facing billboards. As walls, floors and ceilings
-are drawn they record their depth into `zbuf[x + y*W]` (one value per *pixel*).
+are drawn they record their depth into `zbuf[x + y*W]` (one value per *pixel*),
+and — so the editor can't break occlusion — each one also **tests** that buffer
+first, keeping only the nearer surface. The per-column `ytop/ybot` window is the
+fast path for the common convex case; the z-test is the backstop that keeps a
+near wall in front of a farther portal once you've dragged a sector into a
+non-convex (or overlapping) shape, where one screen column can hold two surfaces.
 Each sprite is then projected (same `tx`, `screen_x` and height-shear as a wall),
 the sprites are sorted far-to-near, and each pixel is drawn only where the sprite
 is nearer than what's already in `zbuf`. Per-pixel depth (rather than one value

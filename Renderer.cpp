@@ -82,13 +82,15 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
     float su = u / tx.us + tx.uo;                 // texture coord along the wall
     const Texture* img = imageFor(texId);
     for(int y = y0; y <= y1; ++y){
+        int idx = y*W + x;
+        if(depth >= zbuf_[idx]) continue;             // z-test: keep the nearer surface
         float fy = (y - yTopf) / span;
         float v  = (vTop + (vBot - vTop) * fy) / tx.vs + tx.vo;
         uint32_t c = img ? img->at(su, v) : texSample(base, su, v);
-        fb_[y*W + x]      = shade(c, fade);
-        zbuf_[y*W + x]    = depth;
+        fb_[idx]      = shade(c, fade);
+        zbuf_[idx]    = depth;
 #if EDITOR
-        pickbuf_[y*W + x] = surf;
+        pickbuf_[idx] = surf;
 #endif
     }
 }
@@ -102,15 +104,17 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float denom = (H * 0.5f - y) - P.pitch * F_;
         float tz = h * F_ / denom;
         if(tz <= 0.0001f) continue;
+        int idx = y*W + x;
+        if(tz >= zbuf_[idx]) continue;                // z-test: keep the nearer surface
         float txc = (x - W * 0.5f) * tz / F_;
         float wx = P.x + P.vcos * tz + P.vsin * txc;
         float wy = P.y + P.vsin * tz - P.vcos * txc;
         float sx = wx / tx.us + tx.uo, sy = wy / tx.vs + tx.vo;
         uint32_t c = img ? img->at(sx, sy) : planeTex(base, sx, sy);
-        fb_[y*W + x]      = shade(c, distFade(tz));
-        zbuf_[y*W + x]    = tz;
+        fb_[idx]      = shade(c, distFade(tz));
+        zbuf_[idx]    = tz;
 #if EDITOR
-        pickbuf_[y*W + x] = surf;
+        pickbuf_[idx] = surf;
 #endif
     }
 }
@@ -124,12 +128,14 @@ void Renderer::skySpan(int x, int y0, int y1, uint32_t base, int texId,
     const Texture* img = imageFor(texId);               // any assigned image, e.g. bricks
     float su = (float)x / (float)W;                     // one copy across the screen
     for(int y = y0; y <= y1; ++y){
+        int idx = y*W + x;
+        if(zbuf_[idx] < 1e9f) continue;                 // a nearer surface already won
         float sv = (float)y / (float)H;
         uint32_t c = img ? img->at(su, sv) : planeTex(base, su * 8.0f, sv * 4.0f);
-        fb_[y*W + x]      = c;                           // no distance fade: it's "far"
-        zbuf_[y*W + x]    = 1e9f;                        // behind everything
+        fb_[idx]      = c;                               // no distance fade: it's "far"
+        zbuf_[idx]    = 1e9f;                            // behind everything
 #if EDITOR
-        pickbuf_[y*W + x] = surf;                        // still picks as the ceiling
+        pickbuf_[idx] = surf;                            // still picks as the ceiling
 #endif
     }
 }

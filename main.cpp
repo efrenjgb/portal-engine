@@ -95,6 +95,29 @@ static bool deleteVertex(Map& m, Vec2 p){
     }
     return true;
 }
+// Recompute every wall's neighbour link purely from geometry: a wall a->b is a
+// portal to whichever sector owns the reversed wall b->a. Walls with no such
+// partner become solid. So a portal forms wherever two sectors' walls are made
+// to coincide (drag them together) and breaks when they no longer match (after
+// a delete or a drag apart) — portals always stay consistent with the geometry.
+static void rebuildPortals(Map& m){
+    int ns = (int)m.sectors.size();
+    for(int s = 0; s < ns; ++s){
+        Sector& S = m.sectors[s];
+        int n = (int)S.vert.size();
+        for(int w = 0; w < n; ++w){
+            Vec2 a = S.vert[w], b = S.vert[(w+1)%n];
+            int found = -1;
+            for(int t = 0; t < ns && found < 0; ++t){
+                if(t == s) continue;
+                const Sector& N = m.sectors[t]; int nn = (int)N.vert.size();
+                for(int i = 0; i < nn; ++i)
+                    if(vclose(N.vert[i], b) && vclose(N.vert[(i+1)%nn], a)){ found = t; break; }
+            }
+            S.neigh[w] = found;
+        }
+    }
+}
 #endif
 
 int main(int argc, char** argv){
@@ -150,7 +173,9 @@ int main(int argc, char** argv){
              "     , / .       :   pan texture vertically\n"
              "   N             :   cycle image texture on aimed surface\n"
              "   O             :   toggle sky backdrop on aimed ceiling\n"
-             "   Enter         : 2D map view (drag vertices, click a wall to split)\n"
+             "   Enter         : 2D map view  (G grid snap | Z undo | Del/X delete vertex)\n"
+             "                     drag a vertex to move it; click a wall to split in a vertex;\n"
+             "                     make two sectors' walls coincide to bond a portal\n"
              "   P             : set player start to current position\n"
              "   K             : save edited map (to <mapfile>.save)\n");
 #endif
@@ -210,7 +235,7 @@ int main(int argc, char** argv){
                     collectCoincident(map, map.sectors[v.sec].vert[v.idx], dragVerts);
                 } else {                                              // else split the wall here
                     Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
-                    if(w.idx >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sec, w.idx, proj); collectCoincident(map, proj, dragVerts); }
+                    if(w.idx >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sec, w.idx, proj); rebuildPortals(map); collectCoincident(map, proj, dragVerts); }
                 }
             }
             else if(e.type == SDL_MOUSEBUTTONUP && mapView && e.button.button == SDL_BUTTON_LEFT){
@@ -242,7 +267,7 @@ int main(int argc, char** argv){
                             if(!deleteVertex(map, map.sectors[v.sec].vert[v.idx])){
                                 undo.pop_back();          // nothing removed: drop the snapshot
                                 printf("can't delete: a sector would drop below 3 vertices\n");
-                            } else { dragVerts.clear(); printf("deleted vertex\n"); }
+                            } else { rebuildPortals(map); dragVerts.clear(); printf("deleted vertex\n"); }
                         }
                     }
                 }
@@ -297,6 +322,7 @@ int main(int argc, char** argv){
             if(!dragVerts.empty()){           // drag held vertex (+ coincident copies)
                 Vec2 wp = snap({ s2wx(mouseX), s2wy(mouseY) });
                 for(auto& pr : dragVerts) map.sectors[pr.first].vert[pr.second] = wp;
+                rebuildPortals(map);          // bond/break portals as walls meet or part
             }
         } else
 #endif

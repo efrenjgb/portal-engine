@@ -52,10 +52,22 @@ map. **Drag** a vertex with the left mouse button to move it — coincident vert
 wall** (not on a vertex) to insert a new vertex there, splitting the wall; if it's
 a portal, the neighbour's matching wall is split too, and the new vertex is picked
 up for dragging in the same motion. The **mouse wheel** zooms toward the cursor and
-the **arrow keys** pan. Press `Enter` again to return to the 3D view. (Splitting a
-portal makes a sector visible through two openings; the portal flood now draws a
-sector once *per* opening — see `MAX_VISITS` in `renderWorld` — so this stays
-hole-free.)
+the **arrow keys** pan. Press `Enter` again to return to the 3D view.
+
+Editing keys (in the 2D view): `G` toggles **grid snap** (on by default — new and
+dragged vertices land on the unit grid the editor draws, so walls stay aligned and
+coincide exactly); `Z` is a 64-deep **undo**; `Delete`/`Backspace`/`X` **deletes**
+the hovered vertex (merging the two walls that met there, refused if a sector would
+fall below 3 vertices).
+
+**Portals are derived from geometry.** After every edit the editor recomputes each
+wall's neighbour link (`rebuildPortals`): a wall `a→b` is a portal to whichever
+sector owns the reversed wall `b→a`. So you **create a portal** simply by dragging
+two sectors' walls until they coincide (grid snap makes this exact) — they bond and
+turn green — and a portal **breaks** back to solid when its walls no longer match
+(after a delete, or dragging them apart). Splitting a portal makes a sector visible
+through two openings; the portal flood draws a sector once *per* opening (see
+`MAX_VISITS` in `renderWorld`), so this stays hole-free.
 
 ---
 

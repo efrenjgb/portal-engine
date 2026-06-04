@@ -74,6 +74,27 @@ static void splitWall(Map& m, int s, int w, Vec2 p){
             if(vclose(N.vert[i], b) && vclose(N.vert[(i+1)%nn], a)){ ins(N, i); break; }
     }
 }
+// delete the vertex at p (and every coincident copy) from each sector that uses
+// it, provided that sector keeps at least 3 vertices. The two walls meeting at
+// the vertex merge into one. Deleting a *coincident* point (a portal seam, or a
+// point you just split) removes it from both sides symmetrically, so portals
+// stay matched; deleting a lone sector corner reshapes only that sector.
+static bool deleteVertex(Map& m, Vec2 p){
+    std::vector<std::pair<int,int>> hits;
+    collectCoincident(m, p, hits);
+    if(hits.empty()) return false;
+    for(auto& h : hits) if((int)m.sectors[h.first].vert.size() <= 3) return false;
+    std::sort(hits.begin(), hits.end(),                // erase high indices first
+              [](const std::pair<int,int>& a, const std::pair<int,int>& b){ return a.second > b.second; });
+    for(auto& h : hits){
+        Sector& S = m.sectors[h.first]; int i = h.second;
+        S.vert.erase(S.vert.begin()+i);
+        S.neigh.erase(S.neigh.begin()+i);
+        S.wallTex.erase(S.wallTex.begin()+i);
+        S.wallTexId.erase(S.wallTexId.begin()+i);
+    }
+    return true;
+}
 #endif
 
 int main(int argc, char** argv){
@@ -213,6 +234,16 @@ int main(int argc, char** argv){
                     if(k == SDLK_z && !undo.empty()){
                         map.sectors = undo.back(); undo.pop_back(); dragVerts.clear();
                         printf("undo (%zu left)\n", undo.size());
+                    }
+                    if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x){
+                        VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
+                        if(v.idx >= 0){
+                            pushUndo();
+                            if(!deleteVertex(map, map.sectors[v.sec].vert[v.idx])){
+                                undo.pop_back();          // nothing removed: drop the snapshot
+                                printf("can't delete: a sector would drop below 3 vertices\n");
+                            } else { dragVerts.clear(); printf("deleted vertex\n"); }
+                        }
                     }
                 }
                 if(k == SDLK_TAB) editMode = !editMode;

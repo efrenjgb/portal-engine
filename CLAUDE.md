@@ -104,7 +104,10 @@ In the 2D editor (`Enter`), **portals are derived from geometry**: after every e
 `rebuildPortals` relinks each wall `a->b` to whichever sector owns the reversed wall
 `b->a`. So a portal is created by making two sectors' walls coincide (grid snap helps)
 and broken when they no longer match. Coincident vertices (portal seams) are moved/
-deleted together to keep portals matched.
+deleted together to keep portals matched. Drawing a new sector (`B`, `addSector`)
+snaps each point to the grid or an existing vertex, forces CCW winding, inherits
+heights/colours via `pointInSector`, and relies on the same `rebuildPortals` step to
+bond any shared edge — so there is no explicit "connect" operation anywhere.
 
 ## Conventions
 

@@ -60,7 +60,12 @@ Editing keys (in the 2D view): `G` toggles **grid snap** (on by default — new 
 dragged vertices land on the unit grid the editor draws, so walls stay aligned and
 coincide exactly); `Z` is a 64-deep **undo**; `Delete`/`Backspace`/`X` **deletes**
 the hovered vertex (merging the two walls that met there, refused if a sector would
-fall below 3 vertices).
+fall below 3 vertices). `B` **draws a new sector**: click to drop points (each snaps
+to the grid or to an existing vertex), then click the first point (or press `B`) to
+close the loop; `Backspace` removes the last point and right-click cancels. The
+polygon is auto-oriented CCW and inherits its heights/colours from whatever sector
+it sits inside; because any edge that snaps onto an existing wall coincides exactly,
+the new room **bonds into a portal automatically** (see `rebuildPortals`).
 
 **Portals are derived from geometry.** After every edit the editor recomputes each
 wall's neighbour link (`rebuildPortals`): a wall `a→b` is a portal to whichever

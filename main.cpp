@@ -118,6 +118,46 @@ static void rebuildPortals(Map& m){
         }
     }
 }
+// point-in-polygon (even-odd rule) for inheriting a new sector's look.
+static bool pointInSector(const Sector& S, Vec2 p){
+    bool in = false; int n = (int)S.vert.size();
+    for(int i = 0, j = n-1; i < n; j = i++){
+        Vec2 a = S.vert[i], b = S.vert[j];
+        if(((a.y > p.y) != (b.y > p.y)) &&
+           (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) in = !in;
+    }
+    return in;
+}
+// Create a new sector from drawn points. Forces CCW winding (the renderer's
+// back-face cull needs it), inherits heights/colours from whatever sector the
+// new polygon sits inside (else neutral defaults), and rebuilds portals so any
+// edge shared with an existing sector bonds automatically.
+static bool addSector(Map& m, std::vector<Vec2> pts){
+    int n = (int)pts.size();
+    if(n < 3) return false;
+    double area2 = 0;                                  // signed area * 2
+    for(int i = 0; i < n; ++i){ Vec2 a = pts[i], b = pts[(i+1)%n]; area2 += (double)a.x*b.y - (double)b.x*a.y; }
+    if(std::fabs(area2) < 0.5) return false;           // degenerate / collinear
+    if(area2 < 0) std::reverse(pts.begin(), pts.end());// CW -> CCW
+
+    Sector S;
+    S.floor = 0.0f; S.ceil = 4.5f;                     // neutral defaults
+    S.floorCol = 0xFF243447; S.ceilCol = 0xFF1b2230; S.wallCol = 0xFF6f7d8c;
+    Vec2 c{0,0}; for(auto& v : pts){ c.x += v.x; c.y += v.y; } c.x /= n; c.y /= n;
+    for(const Sector& E : m.sectors)                   // inherit from the sector we're inside
+        if(pointInSector(E, c)){
+            S.floor = E.floor; S.ceil = E.ceil;
+            S.floorCol = E.floorCol; S.ceilCol = E.ceilCol; S.wallCol = E.wallCol;
+            break;
+        }
+    S.vert = pts;
+    S.neigh.assign(n, -1);
+    S.wallTex.assign(n, TexXform{});
+    S.wallTexId.assign(n, -1);
+    m.sectors.push_back(std::move(S));
+    rebuildPortals(m);
+    return true;
+}
 #endif
 
 int main(int argc, char** argv){
@@ -175,7 +215,8 @@ int main(int argc, char** argv){
              "   O             :   toggle sky backdrop on aimed ceiling\n"
              "   Enter         : 2D map view  (G grid snap | Z undo | Del/X delete vertex)\n"
              "                     drag a vertex to move it; click a wall to split in a vertex;\n"
-             "                     make two sectors' walls coincide to bond a portal\n"
+             "                     make two sectors' walls coincide to bond a portal;\n"
+             "                     B draws a new sector (click points, click the first to close)\n"
              "   P             : set player start to current position\n"
              "   K             : save edited map (to <mapfile>.save)\n");
 #endif
@@ -188,6 +229,8 @@ int main(int argc, char** argv){
     float mvScale = 24.0f, mvOx = 0, mvOy = 0;
     int   mouseX = W/2, mouseY = H/2;
     std::vector<std::pair<int,int>> dragVerts;
+    bool  drawing = false;                   // drawing a new sector (B)
+    std::vector<Vec2> drawPts;               // its points so far
     std::vector<std::vector<Sector>> undo;  // geometry snapshots for undo (Z)
     auto  pushUndo = [&](){ undo.push_back(map.sectors);
                             if(undo.size() > 64) undo.erase(undo.begin()); };
@@ -226,16 +269,38 @@ int main(int argc, char** argv){
                 mvScale = clampf(mvScale * (e.wheel.y > 0 ? 1.15f : e.wheel.y < 0 ? 0.87f : 1.0f), 2.0f, 400.0f);
                 mvOx = mouseX - wx*mvScale; mvOy = mouseY + wy*mvScale;
             }
+            else if(e.type == SDL_MOUSEBUTTONDOWN && mapView && e.button.button == SDL_BUTTON_RIGHT){
+                if(drawing){ drawing = false; drawPts.clear(); printf("draw cancelled\n"); }
+            }
             else if(e.type == SDL_MOUSEBUTTONDOWN && mapView && e.button.button == SDL_BUTTON_LEFT){
                 mouseX = e.button.x; mouseY = e.button.y;
-                VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-                dragVerts.clear();
-                if(v.idx >= 0){                                       // grab a vertex (+coincident)
-                    pushUndo();
-                    collectCoincident(map, map.sectors[v.sec].vert[v.idx], dragVerts);
-                } else {                                              // else split the wall here
-                    Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
-                    if(w.idx >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sec, w.idx, proj); rebuildPortals(map); collectCoincident(map, proj, dragVerts); }
+                if(drawing){                                          // place / close a new-sector point
+                    bool closed = false;
+                    if(drawPts.size() >= 3){                          // click near the first point closes
+                        float sx = mvOx + drawPts[0].x*mvScale, sy = mvOy - drawPts[0].y*mvScale;
+                        float dx = sx - mouseX, dy = sy - mouseY;
+                        if(dx*dx + dy*dy < 100.0f){
+                            pushUndo();
+                            if(addSector(map, drawPts)) printf("created sector %d\n", (int)map.sectors.size()-1);
+                            else { undo.pop_back(); printf("invalid sector (need 3+ non-collinear points)\n"); }
+                            drawPts.clear(); drawing = false; closed = true;
+                        }
+                    }
+                    if(!closed){                                      // snap to an existing vertex, else grid
+                        VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
+                        drawPts.push_back(v.idx >= 0 ? map.sectors[v.sec].vert[v.idx]
+                                                     : snap({ s2wx(mouseX), s2wy(mouseY) }));
+                    }
+                } else {
+                    VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
+                    dragVerts.clear();
+                    if(v.idx >= 0){                                   // grab a vertex (+coincident)
+                        pushUndo();
+                        collectCoincident(map, map.sectors[v.sec].vert[v.idx], dragVerts);
+                    } else {                                          // else split the wall here
+                        Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
+                        if(w.idx >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sec, w.idx, proj); rebuildPortals(map); collectCoincident(map, proj, dragVerts); }
+                    }
                 }
             }
             else if(e.type == SDL_MOUSEBUTTONUP && mapView && e.button.button == SDL_BUTTON_LEFT){
@@ -251,23 +316,39 @@ int main(int argc, char** argv){
 #if EDITOR
                 if(k == SDLK_RETURN || k == SDLK_KP_ENTER){
                     mapView = !mapView;
+                    drawing = false; drawPts.clear();   // leaving the view cancels a draw
                     if(mapView) fitView();
                     SDL_SetRelativeMouseMode((!mapView && mouseGrabbed) ? SDL_TRUE : SDL_FALSE);
                 }
                 if(mapView){                       // ---- 2D map-editor keys ----
                     if(k == SDLK_g){ gridSnap = !gridSnap; printf("grid snap %s\n", gridSnap ? "on" : "off"); }
-                    if(k == SDLK_z && !undo.empty()){
-                        map.sectors = undo.back(); undo.pop_back(); dragVerts.clear();
-                        printf("undo (%zu left)\n", undo.size());
+                    if(k == SDLK_b){                // start / finish drawing a new sector
+                        if(drawing){
+                            if(drawPts.size() >= 3){
+                                pushUndo();
+                                if(addSector(map, drawPts)) printf("created sector %d\n", (int)map.sectors.size()-1);
+                                else { undo.pop_back(); printf("invalid sector (need 3+ non-collinear points)\n"); }
+                            } else printf("draw cancelled\n");
+                            drawing = false; drawPts.clear();
+                        } else { drawing = true; drawPts.clear();
+                                 printf("draw sector: click points; click the first point or press B to close, right-click cancels\n"); }
                     }
-                    if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x){
-                        VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-                        if(v.idx >= 0){
-                            pushUndo();
-                            if(!deleteVertex(map, map.sectors[v.sec].vert[v.idx])){
-                                undo.pop_back();          // nothing removed: drop the snapshot
-                                printf("can't delete: a sector would drop below 3 vertices\n");
-                            } else { rebuildPortals(map); dragVerts.clear(); printf("deleted vertex\n"); }
+                    if(drawing){
+                        if(k == SDLK_BACKSPACE && !drawPts.empty()) drawPts.pop_back();
+                    } else {
+                        if(k == SDLK_z && !undo.empty()){
+                            map.sectors = undo.back(); undo.pop_back(); dragVerts.clear();
+                            printf("undo (%zu left)\n", undo.size());
+                        }
+                        if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x){
+                            VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
+                            if(v.idx >= 0){
+                                pushUndo();
+                                if(!deleteVertex(map, map.sectors[v.sec].vert[v.idx])){
+                                    undo.pop_back();          // nothing removed: drop the snapshot
+                                    printf("can't delete: a sector would drop below 3 vertices\n");
+                                } else { rebuildPortals(map); dragVerts.clear(); printf("deleted vertex\n"); }
+                            }
                         }
                     }
                 }
@@ -409,11 +490,14 @@ int main(int argc, char** argv){
         renderer.clear(0xFF0a0c12);
 #if EDITOR
         if(mapView){
-            VHit hv = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-            VHit hw; Vec2 proj;
-            if(hv.idx < 0) hw = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
+            VHit hv, hw; Vec2 proj;
+            if(!drawing){                          // no hover highlight while drawing
+                hv = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
+                if(hv.idx < 0) hw = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
+            }
             renderer.drawMapEditor(map, mvScale, mvOx, mvOy, hv.sec, hv.idx, hw.sec, hw.idx,
                                    { player.cam.x, player.cam.y }, player.cam.angle);
+            if(drawing) renderer.drawPendingSector(drawPts, mvScale, mvOx, mvOy, mouseX, mouseY);
         } else
 #endif
         {

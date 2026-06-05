@@ -38,6 +38,11 @@ public:
                        int hovSec, int hovVert, int hwSec, int hwWall,
                        Vec2 playerPos, float playerAng);
 
+    // Overlay the in-progress polygon while drawing a new sector (2D editor):
+    // placed points, the edges between them, and a rubber-band to the cursor.
+    void drawPendingSector(const std::vector<Vec2>& pts, float sc, float ox, float oy,
+                           int mx, int my);
+
 #if EDITOR
     // What surface did the last renderWorld draw at this pixel? (kind==None if
     // nothing / background). Decoded from the per-pixel pick buffer.

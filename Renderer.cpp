@@ -414,6 +414,27 @@ void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
     for(int dy=-2; dy<=2; ++dy) for(int dx=-2; dx<=2; ++dx) putpx(px+dx, py+dy, 0xFFff4040);
 }
 
+void Renderer::drawPendingSector(const std::vector<Vec2>& pts, float sc, float ox, float oy,
+                                 int mx, int my){
+    if(pts.empty()) return;
+    auto SX = [&](float wx){ return (int)(ox + wx*sc); };
+    auto SY = [&](float wy){ return (int)(oy - wy*sc); };
+    const uint32_t edge = 0xFFffd24a, band = 0xFF8a7320;
+
+    for(size_t i = 0; i + 1 < pts.size(); ++i)               // committed edges
+        line2d(SX(pts[i].x), SY(pts[i].y), SX(pts[i+1].x), SY(pts[i+1].y), edge);
+    line2d(SX(pts.back().x), SY(pts.back().y), mx, my, band); // rubber-band to cursor
+    if(pts.size() >= 2)                                       // hint of the closing edge
+        line2d(mx, my, SX(pts[0].x), SY(pts[0].y), band);
+
+    for(size_t i = 0; i < pts.size(); ++i){                  // placed points
+        int vx = SX(pts[i].x), vy = SY(pts[i].y);
+        int r = (i == 0) ? 3 : 2;                            // first point bigger (click to close)
+        uint32_t c = (i == 0) ? 0xFFffffff : edge;
+        for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putpx(vx+dx, vy+dy, c);
+    }
+}
+
 #if EDITOR
 SurfaceRef Renderer::pickAt(int x, int y) const {
     SurfaceRef r;

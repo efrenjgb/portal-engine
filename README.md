@@ -36,12 +36,14 @@ headlessly. (Originally this was a single C file; see the git history.)
 
 **Controls:** `WASD`/arrows move & strafe · mouse looks (turn + pitch) ·
 `Q`/`E` turn · `R`/`F` pitch · `Space` jump · `M` release mouse · `Esc` quit.
-`Tab` toggles **edit mode**, which acts on the surface under the crosshair:
-`T`/`G` raise/lower the *floor or ceiling* you're aiming at; `[`/`]` shrink/grow
+`Tab` toggles **edit mode**. `T`/`G` raise/lower the *ceiling* when you're looking
+up and the *floor* when you're looking down, acting on the sector you're standing in
+(no need to aim at a surface). The remaining keys act on the surface under the
+crosshair: `[`/`]` shrink/grow
 the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, `N` cycles the
 surface's image texture, and `O` toggles a static sky backdrop on a ceiling. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the
-edited world to `<mapfile>.save` (reload it with `./build_engine <mapfile>.save`).
+edited world to `<mapfile>.save` (reload it with `./portal_engine <mapfile>.save`).
 The green lines on the top-left minimap are **portals**; grey lines are solid
 walls; in edit mode the **magenta** outline is the sector you're aiming at and a
 **yellow** edge is the specific wall under the crosshair.
@@ -172,10 +174,11 @@ renderer draws each wall/floor/ceiling it also stamps a packed *surface ID* into
 a per-pixel pick buffer (alongside the depth buffer). `pickAt(x, y)` then decodes
 the pixel under the crosshair into a `SurfaceRef` — `{sector, kind (floor /
 ceiling / wall), wall index}` — so we know exactly which surface you're looking
-at, even through a doorway or window. Press `Tab` and `T`/`G`, `Y`/`H` change the
-aimed sector's floor/ceiling in real time (nothing is precomputed — the next
-frame just renders the new heights). The pick is the groundwork for per-surface
-editing like textures: it's specific down to the individual wall.
+at, even through a doorway or window. In edit mode (`Tab`) `T`/`G` change a height
+in real time (nothing is precomputed — the next frame just renders the new
+heights); the pick drives the per-surface texture editing, specific down to the
+individual wall. (Height editing itself uses the camera pitch — ceiling when
+looking up, floor when looking down — on the sector you're standing in.)
 
 **10. Per-surface texture wrapping (`TexXform`).**
 Every wall and every sector floor/ceiling carries a texture transform

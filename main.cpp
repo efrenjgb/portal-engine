@@ -167,7 +167,7 @@ int main(int argc, char** argv){
              EDITOR ? "" : "  [play build]");
 #if EDITOR
     printf("   Tab           : toggle edit mode\n"
-             "     T / G       :   raise / lower the FLOOR or CEILING you aim at\n"
+             "     T / G       :   raise / lower this sector's CEILING (look up) or FLOOR (look down)\n"
              "     [ / ]       :   shrink / grow texture on aimed surface\n"
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
@@ -355,33 +355,41 @@ int main(int argc, char** argv){
         // ---- what's under the crosshair + the height editor (editor builds) ----
 #if EDITOR
         aim = renderer.pickAt(W/2, H/2);      // from last frame's pick buffer
-        if(editMode && aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
-            Sector& t = map.sectors[aim.sector];
+        if(editMode){
             float rate = 2.0f * dt;
-            // T/G raise/lower whichever horizontal surface the crosshair is on
-            if(aim.kind == SurfaceRef::Floor){
-                if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceil - 0.3f);
-                if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
-            } else if(aim.kind == SurfaceRef::Ceiling){
-                if(ks[SDL_SCANCODE_T]) t.ceil = std::min(t.ceil + rate, 18.0f);
-                if(ks[SDL_SCANCODE_G]) t.ceil = std::max(t.ceil - rate, t.floor + 0.3f);
+            // T/G raise/lower the CEILING when looking up, the FLOOR when looking
+            // down (pitch > 0 looks down) — acting on the sector you're standing
+            // in, so you needn't aim precisely at a horizontal surface.
+            if((ks[SDL_SCANCODE_T] || ks[SDL_SCANCODE_G]) &&
+               player.sector >= 0 && player.sector < (int)map.sectors.size()){
+                Sector& t = map.sectors[player.sector];
+                if(player.cam.pitch < 0.0f){      // looking up -> ceiling
+                    if(ks[SDL_SCANCODE_T]) t.ceil = std::min(t.ceil + rate, 18.0f);
+                    if(ks[SDL_SCANCODE_G]) t.ceil = std::max(t.ceil - rate, t.floor + 0.3f);
+                } else {                          // looking down / level -> floor
+                    if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceil - 0.3f);
+                    if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
+                }
             }
 
-            // texture wrap/pan on the exact surface under the crosshair
-            TexXform* tx = nullptr;
-            if(aim.kind == SurfaceRef::Wall && aim.wall < (int)t.wallTex.size()) tx = &t.wallTex[aim.wall];
-            else if(aim.kind == SurfaceRef::Floor)   tx = &t.floorTex;
-            else if(aim.kind == SurfaceRef::Ceiling) tx = &t.ceilTex;
-            if(tx){
-                float pan = 1.5f * dt, sf = 1.0f + 1.5f * dt;
-                if(ks[SDL_SCANCODE_RIGHTBRACKET]){ tx->us *= sf; tx->vs *= sf; }
-                if(ks[SDL_SCANCODE_LEFTBRACKET]) { tx->us /= sf; tx->vs /= sf; }
-                tx->us = clampf(tx->us, 0.1f, 16.0f);
-                tx->vs = clampf(tx->vs, 0.1f, 16.0f);
-                if(ks[SDL_SCANCODE_APOSTROPHE]) tx->uo += pan;
-                if(ks[SDL_SCANCODE_SEMICOLON])  tx->uo -= pan;
-                if(ks[SDL_SCANCODE_PERIOD])     tx->vo += pan;
-                if(ks[SDL_SCANCODE_COMMA])      tx->vo -= pan;
+            // texture wrap/pan still acts on the exact surface under the crosshair
+            if(aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
+                Sector& t = map.sectors[aim.sector];
+                TexXform* tx = nullptr;
+                if(aim.kind == SurfaceRef::Wall && aim.wall < (int)t.wallTex.size()) tx = &t.wallTex[aim.wall];
+                else if(aim.kind == SurfaceRef::Floor)   tx = &t.floorTex;
+                else if(aim.kind == SurfaceRef::Ceiling) tx = &t.ceilTex;
+                if(tx){
+                    float pan = 1.5f * dt, sf = 1.0f + 1.5f * dt;
+                    if(ks[SDL_SCANCODE_RIGHTBRACKET]){ tx->us *= sf; tx->vs *= sf; }
+                    if(ks[SDL_SCANCODE_LEFTBRACKET]) { tx->us /= sf; tx->vs /= sf; }
+                    tx->us = clampf(tx->us, 0.1f, 16.0f);
+                    tx->vs = clampf(tx->vs, 0.1f, 16.0f);
+                    if(ks[SDL_SCANCODE_APOSTROPHE]) tx->uo += pan;
+                    if(ks[SDL_SCANCODE_SEMICOLON])  tx->uo -= pan;
+                    if(ks[SDL_SCANCODE_PERIOD])     tx->vo += pan;
+                    if(ks[SDL_SCANCODE_COMMA])      tx->vo -= pan;
+                }
             }
         }
         // report the targeted surface when it changes (groundwork for texturing)

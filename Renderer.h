@@ -8,12 +8,13 @@
 #include <vector>
 #include <cstdint>
 
-// Identifies one editable surface in the world (what's under the crosshair).
+// Identifies one editable thing under the crosshair: a sector surface or a sprite.
 struct SurfaceRef {
-    enum Kind { None = 0, Floor = 1, Ceiling = 2, Wall = 3 };
+    enum Kind { None = 0, Floor = 1, Ceiling = 2, Wall = 3, Sprite = 4 };
     int  sector = -1;
     Kind kind   = None;
     int  wall   = -1;   // only meaningful when kind == Wall
+    int  sprite = -1;   // only meaningful when kind == Sprite
 };
 
 class Renderer {

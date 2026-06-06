@@ -306,7 +306,8 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
     }
 
     for(int o = 0; o < ns; ++o){
-        const Sprite& sp = map.sprites[order[o]];
+        int si = order[o];
+        const Sprite& sp = map.sprites[si];
         float rx = sp.pos.x - P.x, ry = sp.pos.y - P.y;
         float tz = rx*P.vcos + ry*P.vsin;
         if(tz < 0.2f) continue;
@@ -329,7 +330,12 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
                 if(tz >= zbuf_[y*W + x]) continue;
                 float vv = (y - yt) / (float)(yb - yt);
                 uint32_t c = spriteTex(sp.col, uu, vv);
-                if(c) fb_[y*W + x] = shade(c, fade);
+                if(c){
+                    fb_[y*W + x] = shade(c, fade);
+#if EDITOR
+                    pickbuf_[y*W + x] = ((uint32_t)SurfaceRef::Sprite << 28) | ((uint32_t)si & 0xFFFF);
+#endif
+                }
             }
         }
     }
@@ -442,7 +448,8 @@ SurfaceRef Renderer::pickAt(int x, int y) const {
     uint32_t s = pickbuf_[(size_t)y*W + x];
     int kind = (int)((s >> 28) & 0xF);
     if(kind == 0) return r;                       // background / nothing
-    r.kind   = (SurfaceRef::Kind)kind;
+    r.kind = (SurfaceRef::Kind)kind;
+    if(kind == SurfaceRef::Sprite){ r.sprite = (int)(s & 0xFFFF); return r; }
     r.wall   = (int)((s >> 16) & 0xFFF);
     r.sector = (int)(s & 0xFFFF);
     return r;

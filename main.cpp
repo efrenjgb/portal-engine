@@ -207,7 +207,8 @@ int main(int argc, char** argv){
              EDITOR ? "" : "  [play build]");
 #if EDITOR
     printf("   Tab           : toggle edit mode\n"
-             "     T / G       :   raise / lower the aimed sector's CEILING (look up) or FLOOR (look down)\n"
+             "     T / G       :   raise / lower the aimed SPRITE's height, else the aimed sector's\n"
+             "                       CEILING (look up) or FLOOR (look down)\n"
              "     [ / ]       :   shrink / grow texture on aimed surface\n"
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
@@ -438,18 +439,24 @@ int main(int argc, char** argv){
         aim = renderer.pickAt(W/2, H/2);      // from last frame's pick buffer
         if(editMode){
             float rate = 2.0f * dt;
-            // T/G raise/lower the CEILING when looking up, the FLOOR when looking
-            // down (pitch > 0 looks down) — acting on the sector under the
-            // crosshair, so you can edit a room you're looking into.
-            if((ks[SDL_SCANCODE_T] || ks[SDL_SCANCODE_G]) &&
-               aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
-                Sector& t = map.sectors[aim.sector];
-                if(player.cam.pitch < 0.0f){      // looking up -> ceiling
-                    if(ks[SDL_SCANCODE_T]) t.ceil = std::min(t.ceil + rate, 18.0f);
-                    if(ks[SDL_SCANCODE_G]) t.ceil = std::max(t.ceil - rate, t.floor + 0.3f);
-                } else {                          // looking down / level -> floor
-                    if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceil - 0.3f);
-                    if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
+            // T/G act on whatever the crosshair is on: a sprite's vertical height,
+            // else the CEILING when looking up / FLOOR when looking down (pitch > 0
+            // looks down) of the sector under the crosshair.
+            if(ks[SDL_SCANCODE_T] || ks[SDL_SCANCODE_G]){
+                if(aim.kind == SurfaceRef::Sprite &&
+                   aim.sprite >= 0 && aim.sprite < (int)map.sprites.size()){
+                    Sprite& sp = map.sprites[aim.sprite];
+                    if(ks[SDL_SCANCODE_T]) sp.z = std::min(sp.z + rate, 18.0f);
+                    if(ks[SDL_SCANCODE_G]) sp.z = std::max(sp.z - rate, -8.0f);
+                } else if(aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
+                    Sector& t = map.sectors[aim.sector];
+                    if(player.cam.pitch < 0.0f){      // looking up -> ceiling
+                        if(ks[SDL_SCANCODE_T]) t.ceil = std::min(t.ceil + rate, 18.0f);
+                        if(ks[SDL_SCANCODE_G]) t.ceil = std::max(t.ceil - rate, t.floor + 0.3f);
+                    } else {                          // looking down / level -> floor
+                        if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceil - 0.3f);
+                        if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
+                    }
                 }
             }
 
@@ -474,13 +481,14 @@ int main(int argc, char** argv){
             }
         }
         // report the targeted surface when it changes (groundwork for texturing)
-        static int lastK = -1, lastS = -1, lastW = -1;
-        if(editMode && ((int)aim.kind != lastK || aim.sector != lastS || aim.wall != lastW)){
+        static int lastK = -1, lastS = -1, lastW = -1, lastSp = -1;
+        if(editMode && ((int)aim.kind != lastK || aim.sector != lastS || aim.wall != lastW || aim.sprite != lastSp)){
             if(aim.kind == SurfaceRef::Wall)
                 printf("aim: sector %d WALL %d\n", aim.sector, aim.wall);
             else if(aim.kind == SurfaceRef::Floor)   printf("aim: sector %d FLOOR\n",   aim.sector);
             else if(aim.kind == SurfaceRef::Ceiling) printf("aim: sector %d CEILING\n", aim.sector);
-            lastK = (int)aim.kind; lastS = aim.sector; lastW = aim.wall;
+            else if(aim.kind == SurfaceRef::Sprite)  printf("aim: SPRITE %d\n",         aim.sprite);
+            lastK = (int)aim.kind; lastS = aim.sector; lastW = aim.wall; lastSp = aim.sprite;
         }
 #endif
         player.settleEyeHeight(map, dt);

@@ -79,9 +79,11 @@ Sky is a static screen-locked backdrop (`skySpan`, `ceilSky` per sector). Sprite
 billboards sorted far-to-near and z-tested (`drawSprites`).
 
 **Surface picking (EDITOR only).** As it draws, the renderer stamps a packed
-`kind|wall|sector` id into `pickbuf_`; `pickAt(x,y)` decodes the pixel under the
-crosshair into a `SurfaceRef`. This drives all in-engine editing (which exact wall/
-floor/ceiling a command affects).
+`kind|wall|sector` id into `pickbuf_` (and `drawSprites` stamps `kind=Sprite|index`
+for visible sprite pixels); `pickAt(x,y)` decodes the pixel under the crosshair into
+a `SurfaceRef` (a wall/floor/ceiling of a sector, or a sprite). This drives all
+in-engine editing (which exact thing a command affects — e.g. `T`/`G` move a sprite's
+height when aimed at one, else the sector's floor/ceiling).
 
 **Module roles** (relationships that aren't obvious from filenames):
 - `Renderer.{h,cpp}` — all rasterization; **no SDL dependency** (keep it that way).

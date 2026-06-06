@@ -207,7 +207,7 @@ int main(int argc, char** argv){
              EDITOR ? "" : "  [play build]");
 #if EDITOR
     printf("   Tab           : toggle edit mode\n"
-             "     T / G       :   raise / lower this sector's CEILING (look up) or FLOOR (look down)\n"
+             "     T / G       :   raise / lower the aimed sector's CEILING (look up) or FLOOR (look down)\n"
              "     [ / ]       :   shrink / grow texture on aimed surface\n"
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
@@ -439,11 +439,11 @@ int main(int argc, char** argv){
         if(editMode){
             float rate = 2.0f * dt;
             // T/G raise/lower the CEILING when looking up, the FLOOR when looking
-            // down (pitch > 0 looks down) — acting on the sector you're standing
-            // in, so you needn't aim precisely at a horizontal surface.
+            // down (pitch > 0 looks down) — acting on the sector under the
+            // crosshair, so you can edit a room you're looking into.
             if((ks[SDL_SCANCODE_T] || ks[SDL_SCANCODE_G]) &&
-               player.sector >= 0 && player.sector < (int)map.sectors.size()){
-                Sector& t = map.sectors[player.sector];
+               aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
+                Sector& t = map.sectors[aim.sector];
                 if(player.cam.pitch < 0.0f){      // looking up -> ceiling
                     if(ks[SDL_SCANCODE_T]) t.ceil = std::min(t.ceil + rate, 18.0f);
                     if(ks[SDL_SCANCODE_G]) t.ceil = std::max(t.ceil - rate, t.floor + 0.3f);

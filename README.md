@@ -37,9 +37,9 @@ headlessly. (Originally this was a single C file; see the git history.)
 **Controls:** `WASD`/arrows move & strafe · mouse looks (turn + pitch) ·
 `Q`/`E` turn · `R`/`F` pitch · `Space` jump · `M` release mouse · `Esc` quit.
 `Tab` toggles **edit mode**. `T`/`G` raise/lower the *ceiling* when you're looking
-up and the *floor* when you're looking down, acting on the sector you're standing in
-(no need to aim at a surface). The remaining keys act on the surface under the
-crosshair: `[`/`]` shrink/grow
+up and the *floor* when you're looking down, acting on the sector under the crosshair
+(so you can edit a room you're looking into). The remaining keys act on the surface
+under the crosshair: `[`/`]` shrink/grow
 the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, `N` cycles the
 surface's image texture, and `O` toggles a static sky backdrop on a ceiling. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the
@@ -182,8 +182,8 @@ ceiling / wall), wall index}` — so we know exactly which surface you're lookin
 at, even through a doorway or window. In edit mode (`Tab`) `T`/`G` change a height
 in real time (nothing is precomputed — the next frame just renders the new
 heights); the pick drives the per-surface texture editing, specific down to the
-individual wall. (Height editing itself uses the camera pitch — ceiling when
-looking up, floor when looking down — on the sector you're standing in.)
+individual wall. (Height editing uses the camera pitch — ceiling when looking up,
+floor when looking down — on the sector under the crosshair.)
 
 **10. Per-surface texture wrapping (`TexXform`).**
 Every wall and every sector floor/ceiling carries a texture transform

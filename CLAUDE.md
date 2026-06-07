@@ -47,9 +47,10 @@ also exercises the pick buffer.
 
 ## Architecture
 
-The whole world is 2.5D: a list of **sectors**, each a CCW polygon (`vert`) with a
-single `floor`/`ceil` height. Wall `s` is the edge `vert[s] -> vert[s+1]`; `neigh[s]`
-is the sector on the far side (`-1` = solid wall, else a **portal**). There is no BSP.
+The whole world is 2.5D: a list of **sectors**, each a CCW polygon (`vertices`) with
+a single `floor`/`ceiling` height. Wall `s` is the edge `vertices[s] -> vertices[s+1]`;
+`neighbors[s]` is the sector on the far side (`-1` = solid wall, else a **portal**).
+There is no BSP.
 
 **Rendering (`Renderer::renderWorld`, the core).** A BFS queue of
 `(sector, screen-column-window)` jobs starting at the player's sector. For each wall:
@@ -61,12 +62,12 @@ as wall, leave the opening, and queue the neighbour clamped to the opening's col
 Pitch is a fake **y-shear** (`YPROJ` adds `tz*pitch`), not a real camera tilt.
 
 Three cooperating occlusion mechanisms — understand all three before touching the loop:
-1. **Per-column `ytop_/ybot_`** window: the fast path; correct for convex sectors.
+1. **Per-column `columnTop_/columnBottom_`** window: the fast path; correct for convex sectors.
 2. **Per-sector-entry snapshot `et/eb`**: each sector clamps its *own* walls to a
    frozen copy of the window so an earlier portal in the wall list can't chop a later
    solid wall (required for concave sectors made in the editor). Portals shrink the
-   *live* `ytop_/ybot_` for the sectors they queue.
-3. **Per-pixel z-buffer (`zbuf_`)**: `wallSpan`/`planeSpan`/`skySpan` test it and keep
+   *live* `columnTop_/columnBottom_` for the sectors they queue.
+3. **Per-pixel z-buffer (`depthBuffer_`)**: `wallSpan`/`planeSpan`/`skySpan` test it and keep
    the nearer surface. This is the backstop for concave/overlapping geometry and also
    does sprite occlusion. Any new surface writer must z-test.
 
@@ -75,11 +76,11 @@ make it visible through several openings); `MAX_VISITS` bounds revisits and back
 portals are culled, so there's no flood back into the sector you came from.
 
 Floors/ceilings are drawn per-pixel by inverse projection (`planeSpan`, "floor casting").
-Sky is a static screen-locked backdrop (`skySpan`, `ceilSky` per sector). Sprites are
+Sky is a static screen-locked backdrop (`skySpan`, `ceilingIsSky` per sector). Sprites are
 billboards sorted far-to-near and z-tested (`drawSprites`).
 
 **Surface picking (EDITOR only).** As it draws, the renderer stamps a packed
-`kind|wall|sector` id into `pickbuf_` (and `drawSprites` stamps `kind=Sprite|index`
+`kind|wall|sector` id into `pickBuffer_` (and `drawSprites` stamps `kind=Sprite|index`
 for visible sprite pixels); `pickAt(x,y)` decodes the pixel under the crosshair into
 a `SurfaceRef` (a wall/floor/ceiling of a sector, or a sprite). This drives all
 in-engine editing (which exact thing a command affects — e.g. `T`/`G` move a sprite's
@@ -98,7 +99,7 @@ height when aimed at one, else the sector's floor/ceiling).
 Maps are a text file (see header comment in `map.txt`): `texture`, `player`,
 `sector floor ceil floorcol ceilcol wallcol` (colors RRGGBB hex), `wall x y neigh
 [us vs uo vo [texId]]`, `floortex`/`ceiltex`, `ceilsky`, `sprite`. Per-surface texture
-transforms are `TexXform{us,vs,uo,vo}` (sample = world/scale + offset); `texId = -1`
+transforms are `TextureTransform{uScale,vScale,uOffset,vOffset}` (sample = world/scale + offset); `texId = -1`
 means the procedural texture. The editor saves to `<mapfile>.save` (never overwrites
 the original); load it back with `./portal_engine <mapfile>.save`.
 

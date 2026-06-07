@@ -6,7 +6,7 @@ walls, and a portal flood**, with no BSP tree.
 
 ```sh
 make run                 # builds (c++ -std=c++17, sdl2-config) and launches map.txt
-./build_engine [mapfile] # defaults to ./map.txt
+./portal_engine [mapfile] # defaults to ./map.txt
 make play                # stripped build: no editor, no pick buffer (-DEDITOR=0)
 ```
 
@@ -95,9 +95,9 @@ and what makes it a great thing to learn from.
 ## The eleven techniques in this prototype
 
 **1. Sectors & walls (`Sector` struct, the map data).**
-The world is just three polygons. Each has a `floor`/`ceil` height and a list of
-vertices in counter-clockwise order. Wall `s` is the edge from `vert[s]` to
-`vert[s+1]`. `neigh[s]` says which sector is on the other side of that wall, or
+The world is just three polygons. Each has a `floor`/`ceiling` height and a list of
+vertices in counter-clockwise order. Wall `s` is the edge from `vertices[s]` to
+`vertices[s+1]`. `neighbors[s]` says which sector is on the other side of that wall, or
 `-1` if it's solid. A "doorway" is made by splitting a wall into solid–portal–solid
 segments (see how sector 0's north wall has a gap at x = 2..8).
 
@@ -108,7 +108,7 @@ project, and draw — and whenever a wall is a portal, we queue the neighbour
 sector restricted to the screen columns of that opening. Visiting only what's
 visible through openings means we never draw hidden geometry. No BSP needed.
 
-**3. Per-column vertical occlusion (`ytop[]` / `ybottom[]`).**
+**3. Per-column vertical occlusion (`columnTop[]` / `columnBottom[]`).**
 For every screen column we remember the still-empty vertical band. Drawing a
 solid wall, or the upper/lower **steps** of a portal, shrinks that band. The next
 sector drawn through the portal is clamped to it. These two arrays *are* the
@@ -161,7 +161,7 @@ wall into solid–portal–solid segments in the map data.
 Items/monsters are flat camera-facing billboards. As walls, floors and ceilings
 are drawn they record their depth into `zbuf[x + y*W]` (one value per *pixel*),
 and — so the editor can't break occlusion — each one also **tests** that buffer
-first, keeping only the nearer surface. The per-column `ytop/ybot` window is the
+first, keeping only the nearer surface. The per-column `columnTop/columnBottom` window is the
 fast path for the common convex case; the z-test is the backstop that keeps a
 near wall in front of a farther portal once you've dragged a sector into a
 non-convex (or overlapping) shape, where one screen column can hold two surfaces.
@@ -186,7 +186,7 @@ heights); the pick drives the per-surface texture editing, specific down to the
 individual wall. (Height editing uses the camera pitch — ceiling when looking up,
 floor when looking down — on the sector under the crosshair.)
 
-**10. Per-surface texture wrapping (`TexXform`).**
+**10. Per-surface texture wrapping (`TextureTransform`).**
 Every wall and every sector floor/ceiling carries a texture transform
 `{us, vs, uo, vo}` — scale and offset. The samplers map `world / scale + offset`,
 so larger scale stretches the texture (fewer repeats) and the offset pans it.
@@ -199,7 +199,7 @@ tiling, so existing maps look unchanged.
 Surfaces can use an image instead of the procedural pattern. Textures are listed
 in the map (`texture <file>`, index = id) and loaded into a `Texture` (an RGBA
 buffer) at startup; each wall/floor/ceiling has a texture id (-1 = procedural).
-The samplers wrap the image with the same `TexXform` scale/offset as everything
+The samplers wrap the image with the same `TextureTransform` scale/offset as everything
 else. `loadImage` decodes **PNG/JPG/BMP/TGA** via the vendored single-header
 `stb_image.h` (its implementation is isolated in `stb_image_impl.cpp`), with a
 tiny built-in **PPM** reader as a fallback. Sample PNGs live in `textures/`

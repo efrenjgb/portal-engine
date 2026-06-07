@@ -169,11 +169,11 @@ int main(int argc, char** argv){
 
     Player player;
     player.sector    = map.startSector;
-    player.cam.x     = map.playerStart.x;
-    player.cam.y     = map.playerStart.y;
-    player.cam.angle = map.startAngle;
-    player.cam.z     = map.sectors[player.sector].floor + EYE;
-    player.cam.update();
+    player.camera.x     = map.playerStart.x;
+    player.camera.y     = map.playerStart.y;
+    player.camera.angle = map.startAngle;
+    player.camera.z     = map.sectors[player.sector].floor + PLAYER_EYE_HEIGHT;
+    player.camera.update();
 
     if(SDL_Init(SDL_INIT_VIDEO) != 0){
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1;
@@ -376,9 +376,9 @@ int main(int argc, char** argv){
                 }
                 if(k == SDLK_k)   saveMap(map, savePath);
                 if(k == SDLK_p){
-                    map.playerStart = { player.cam.x, player.cam.y };
+                    map.playerStart = { player.camera.x, player.camera.y };
                     map.startSector = player.sector;
-                    map.startAngle  = player.cam.angle;
+                    map.startAngle  = player.camera.angle;
                     printf("player start set: %.2f %.2f sector %d facing %.0f deg\n",
                            map.playerStart.x, map.playerStart.y, map.startSector,
                            map.startAngle * 180.0f / PI_F);
@@ -410,14 +410,14 @@ int main(int argc, char** argv){
 #endif
         {
         // ---- look ----
-        player.cam.angle -= mdx * 0.0030f;
-        player.cam.pitch += mdy * 0.0018f;
-        if(ks[SDL_SCANCODE_Q]) player.cam.angle += 1.8f * dt;
-        if(ks[SDL_SCANCODE_E]) player.cam.angle -= 1.8f * dt;
-        if(ks[SDL_SCANCODE_R]) player.cam.pitch -= 1.2f * dt;
-        if(ks[SDL_SCANCODE_F]) player.cam.pitch += 1.2f * dt;
-        player.cam.pitch = clampf(player.cam.pitch, -0.55f, 0.55f);
-        player.cam.update();
+        player.camera.angle -= mdx * 0.0030f;
+        player.camera.pitch += mdy * 0.0018f;
+        if(ks[SDL_SCANCODE_Q]) player.camera.angle += 1.8f * dt;
+        if(ks[SDL_SCANCODE_E]) player.camera.angle -= 1.8f * dt;
+        if(ks[SDL_SCANCODE_R]) player.camera.pitch -= 1.2f * dt;
+        if(ks[SDL_SCANCODE_F]) player.camera.pitch += 1.2f * dt;
+        player.camera.pitch = clampf(player.camera.pitch, -0.55f, 0.55f);
+        player.camera.update();
 
         // ---- move ----
         float fwd = 0, str = 0;
@@ -426,9 +426,9 @@ int main(int argc, char** argv){
         if(ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT]) str += 1;
         if(ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])  str -= 1;
         if(fwd || str){
-            float sp = MOVE_SPD * dt;
-            float dx = (player.cam.yawCos*fwd + player.cam.yawSin*str) * sp;
-            float dy = (player.cam.yawSin*fwd - player.cam.yawCos*str) * sp;
+            float sp = MOVE_SPEED * dt;
+            float dx = (player.camera.yawCos*fwd + player.camera.yawSin*str) * sp;
+            float dy = (player.camera.yawSin*fwd - player.camera.yawCos*str) * sp;
             player.move(map, dx, dy);
         }
         player.collideSprites(map);
@@ -453,7 +453,7 @@ int main(int argc, char** argv){
                     if(ks[SDL_SCANCODE_G]) sp.z = std::max(sp.z - rate, lo);
                 } else if(aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
                     Sector& t = map.sectors[aim.sector];
-                    if(player.cam.pitch < 0.0f){      // looking up -> ceiling
+                    if(player.camera.pitch < 0.0f){      // looking up -> ceiling
                         if(ks[SDL_SCANCODE_T]) t.ceiling = std::min(t.ceiling + rate, 18.0f);
                         if(ks[SDL_SCANCODE_G]) t.ceiling = std::max(t.ceiling - rate, t.floor + 0.3f);
                     } else {                          // looking down / level -> floor
@@ -507,14 +507,14 @@ int main(int argc, char** argv){
                 if(hv.idx < 0) hw = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
             }
             renderer.drawMapEditor(map, mvScale, mvOx, mvOy, hv.sec, hv.idx, hw.sec, hw.idx,
-                                   { player.cam.x, player.cam.y }, player.cam.angle);
+                                   { player.camera.x, player.camera.y }, player.camera.angle);
             if(drawing) renderer.drawPendingSector(drawPts, mvScale, mvOx, mvOy, mouseX, mouseY);
         } else
 #endif
         {
-            renderer.renderWorld(map, player.cam, player.sector);
-            renderer.drawSprites(map, player.cam);
-            renderer.drawMinimap(map, player.cam, editMode ? aim : SurfaceRef{},
+            renderer.renderWorld(map, player.camera, player.sector);
+            renderer.drawSprites(map, player.camera);
+            renderer.drawMinimap(map, player.camera, editMode ? aim : SurfaceRef{},
                                  map.playerStart, map.startAngle);
             renderer.crosshair(editMode ? 0xFF40ff40 : 0xFFe0e0e0);
         }

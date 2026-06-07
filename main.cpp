@@ -225,7 +225,7 @@ int main(int argc, char** argv){
              "     , / .       :   pan texture vertically\n"
              "   N             :   cycle image texture on aimed surface\n"
              "   O             :   toggle sky backdrop on aimed ceiling\n"
-             "   Enter         : 2D map view  (G grid snap | Z undo | Del/X delete vertex)\n"
+             "   Enter         : 2D map view  (G grid snap, hold Alt to bypass | Z undo | Del/X delete vertex)\n"
              "                     drag a vertex to move it; drag a sprite (diamond) to reposition it;\n"
              "                     click a wall to split in a vertex; coincide two walls to bond a portal;\n"
              "                     B draws a new sector (click points, click the first to close)\n"
@@ -248,10 +248,11 @@ int main(int argc, char** argv){
     std::vector<Snapshot> undo;               // geometry+sprite snapshots for undo (Z)
     auto  pushUndo = [&](){ undo.push_back({ map.sectors, map.sprites });
                             if(undo.size() > 64) undo.erase(undo.begin()); };
-    bool  gridSnap = true;                  // snap edits to the unit grid (G)
-    float gridSize = 1.0f;
-    auto  snap = [&](Vec2 p){ if(gridSnap){ p.x = std::round(p.x/gridSize)*gridSize;
-                                            p.y = std::round(p.y/gridSize)*gridSize; } return p; };
+    bool  gridSnap = true;                  // snap edits to the unit grid (G);
+    float gridSize = 1.0f;                   // hold Alt to bypass it for fine placement
+    auto  snap = [&](Vec2 p){ if(gridSnap && !(SDL_GetModState() & KMOD_ALT)){
+                                  p.x = std::round(p.x/gridSize)*gridSize;
+                                  p.y = std::round(p.y/gridSize)*gridSize; } return p; };
     auto s2wx = [&](int sx){ return (sx - mvOx) / mvScale; };          // screen->world
     auto s2wy = [&](int sy){ return (mvOy - sy) / mvScale; };
     auto fitView = [&](){                                              // frame the whole map

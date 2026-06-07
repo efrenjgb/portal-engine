@@ -176,7 +176,12 @@ int main(int argc, char** argv){
     auto loaded = loadMap(mapPath);
     if(!loaded) return 1;
     Map map = std::move(*loaded);
-    [[maybe_unused]] std::string savePath = mapPath + ".save";   // used by the editor
+    // Edits save to "<mapfile>.save" so the source map is never clobbered — but if
+    // we already loaded a ".save" file, overwrite it in place rather than piling on
+    // another suffix (".save.save.save…").
+    [[maybe_unused]] std::string savePath =
+        (mapPath.size() >= 5 && mapPath.compare(mapPath.size()-5, 5, ".save") == 0)
+        ? mapPath : mapPath + ".save";
 
     Player player;
     player.sector    = map.startSector;

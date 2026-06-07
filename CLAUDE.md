@@ -109,7 +109,8 @@ Maps are a text file (see header comment in `map.txt`): `texture`, `player`,
 [us vs uo vo [texId]]`, `floortex`/`ceiltex`, `ceilsky`, `sprite`. Per-surface texture
 transforms are `TextureTransform{uScale,vScale,uOffset,vOffset}` (sample = world/scale + offset); `texId = -1`
 means the procedural texture. The editor saves to `<mapfile>.save` (never overwrites
-the original); load it back with `./portal_engine <mapfile>.save`.
+the original); load it back with `./portal_engine <mapfile>.save`. Loading a file that
+already ends in `.save` saves back to it in place (no `.save.save` chaining).
 
 In the 2D editor (`Enter`), **portals are derived from geometry**: after every edit
 `rebuildPortals` relinks each wall `a->b` to whichever sector owns the reversed wall

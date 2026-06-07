@@ -44,7 +44,9 @@ under the crosshair: `[`/`]` shrink/grow
 the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, `N` cycles the
 surface's image texture, and `O` toggles a static sky backdrop on a ceiling. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the
-edited world to `<mapfile>.save` (reload it with `./portal_engine <mapfile>.save`).
+edited world to `<mapfile>.save` (reload it with `./portal_engine <mapfile>.save`);
+re-saving a map you loaded *from* a `.save` overwrites it in place instead of piling
+on another `.save` suffix.
 The green lines on the top-left minimap are **portals**; grey lines are solid
 walls; in edit mode the **magenta** outline is the sector you're aiming at and a
 **yellow** edge is the specific wall under the crosshair.

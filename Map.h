@@ -8,33 +8,33 @@
 #include <cstdint>
 
 // Per-surface texture mapping: sample coord = world / scale + offset.
-// Larger scale => the texture appears bigger (fewer repeats). us/uo act along a
-// wall (or world X for floors); vs/vo act vertically (or world Y for floors).
-struct TexXform {
-    float us = 1, vs = 1, uo = 0, vo = 0;
-    bool isDefault() const { return us == 1 && vs == 1 && uo == 0 && vo == 0; }
+// Larger scale => the texture appears bigger (fewer repeats). uScale/uOffset act
+// along a wall (or world X for floors); vScale/vOffset act vertically (or world Y).
+struct TextureTransform {
+    float uScale = 1, vScale = 1, uOffset = 0, vOffset = 0;
+    bool isDefault() const { return uScale == 1 && vScale == 1 && uOffset == 0 && vOffset == 0; }
 };
 
-// A sector is a CCW loop of vertices. Wall s runs from vert[s] to vert[s+1];
-// neigh[s] is the sector on the far side of that wall, or -1 if solid.
+// A sector is a CCW loop of vertices. Wall s runs from vertices[s] to vertices[s+1];
+// neighbors[s] is the sector on the far side of that wall, or -1 if solid.
 struct Sector {
-    float floor = 0, ceil = 0;
-    std::vector<Vec2>      vert;
-    std::vector<int>       neigh;
-    std::vector<TexXform>  wallTex;          // parallel to vert/neigh
-    std::vector<int>       wallTexId;        // image-texture index, -1 = procedural
-    TexXform               floorTex, ceilTex;
-    int                    floorTexId = -1, ceilTexId = -1;
-    bool                   ceilSky = false;   // render ceiling as a parallax sky
-    uint32_t floorCol = 0, ceilCol = 0, wallCol = 0;
+    float floor = 0, ceiling = 0;
+    std::vector<Vec2>              vertices;
+    std::vector<int>              neighbors;
+    std::vector<TextureTransform> wallTextures;     // parallel to vertices/neighbors
+    std::vector<int>              wallTextureIds;    // image-texture index, -1 = procedural
+    TextureTransform              floorTexture, ceilingTexture;
+    int                           floorTextureId = -1, ceilingTextureId = -1;
+    bool                          ceilingIsSky = false;   // render ceiling as a parallax sky
+    uint32_t floorColor = 0, ceilingColor = 0, wallColor = 0;
 };
 
 // A flat camera-facing billboard. z is the feet height; radius is half the
 // on-screen width in world units.
 struct Sprite {
-    Vec2 pos;
+    Vec2 position;
     float z = 0, radius = 0, height = 0;
-    uint32_t col = 0;
+    uint32_t color = 0;
 };
 
 struct Map {

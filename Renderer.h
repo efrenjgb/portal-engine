@@ -67,8 +67,8 @@ private:
     void line2d(int x0, int y0, int x1, int y1, uint32_t c);
     void wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
                   int clipT, int clipB, float u, uint32_t base, float depth,
-                  uint32_t surf, const TexXform& tx, int texId);
+                  uint32_t surf, const TextureTransform& tx, int texId);
     void planeSpan(const Camera& cam, int x, int y0, int y1, float pz, uint32_t base,
-                   uint32_t surf, const TexXform& tx, int texId);
+                   uint32_t surf, const TextureTransform& tx, int texId);
     void skySpan(int x, int y0, int y1, uint32_t base, int texId, uint32_t surf);
 };

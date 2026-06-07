@@ -73,19 +73,19 @@ const Texture* Renderer::imageFor(int texId) const {
 
 void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
                         int clipT, int clipB, float u, uint32_t base, float depth,
-                        [[maybe_unused]] uint32_t surf, const TexXform& tx, int texId){
+                        [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId){
     int y0 = std::max((int)yTopf, clipT);
     int y1 = std::min((int)yBotf, clipB);
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float span = yBotf - yTopf; if(span == 0) span = 1.0f;
     float fade = distFade(depth);
-    float su = u / tx.us + tx.uo;                 // texture coord along the wall
+    float su = u / tx.uScale + tx.uOffset;                 // texture coord along the wall
     const Texture* img = imageFor(texId);
     for(int y = y0; y <= y1; ++y){
         int idx = y*W + x;
         if(depth >= zbuf_[idx]) continue;             // z-test: keep the nearer surface
         float fy = (y - yTopf) / span;
-        float v  = (vTop + (vBot - vTop) * fy) / tx.vs + tx.vo;
+        float v  = (vTop + (vBot - vTop) * fy) / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(su, v) : texSample(base, su, v);
         fb_[idx]      = shade(c, fade);
         zbuf_[idx]    = depth;
@@ -96,7 +96,7 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
 }
 
 void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base,
-                         [[maybe_unused]] uint32_t surf, const TexXform& tx, int texId){
+                         [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId){
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float h = pz - P.z;
     const Texture* img = imageFor(texId);
@@ -109,7 +109,7 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float txc = (x - W * 0.5f) * tz / F_;
         float wx = P.x + P.vcos * tz + P.vsin * txc;
         float wy = P.y + P.vsin * tz - P.vcos * txc;
-        float sx = wx / tx.us + tx.uo, sy = wy / tx.vs + tx.vo;
+        float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(sx, sy) : planeTex(base, sx, sy);
         fb_[idx]      = shade(c, distFade(tz));
         zbuf_[idx]    = tz;
@@ -167,7 +167,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
         if(visits[now.sect] >= MAX_VISITS) continue;
         visits[now.sect]++;
         const Sector& sec = map.sectors[now.sect];
-        int n = (int)sec.vert.size();
+        int n = (int)sec.vertices.size();
 
         // Freeze the incoming window: this sector's own walls clamp to et/eb, so
         // a portal earlier in the list can't chop a solid wall that comes later
@@ -176,7 +176,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
         for(int x = now.sx1; x <= now.sx2; ++x){ et[x] = ytop_[x]; eb[x] = ybot_[x]; }
 
         for(int s = 0; s < n; ++s){
-            Vec2 a = sec.vert[s], b = sec.vert[(s+1) % n];
+            Vec2 a = sec.vertices[s], b = sec.vertices[(s+1) % n];
 
             float vx1 = a.x - P.x, vy1 = a.y - P.y;
             float vx2 = b.x - P.x, vy2 = b.y - P.y;
@@ -236,11 +236,11 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             if(fx2 - fx1 < 0.01f) continue;                  // sub-pixel sliver
             if(fx2 < now.sx1 || fx1 > now.sx2) continue;     // outside this sector's window
 
-            float yc = sec.ceil  - P.z;
+            float yc = sec.ceiling  - P.z;
             float yf = sec.floor - P.z;
-            int   nb = sec.neigh[s];
+            int   nb = sec.neighbors[s];
             float nyc = 0, nyf = 0;
-            if(nb >= 0){ nyc = map.sectors[nb].ceil - P.z; nyf = map.sectors[nb].floor - P.z; }
+            if(nb >= 0){ nyc = map.sectors[nb].ceiling - P.z; nyf = map.sectors[nb].floor - P.z; }
 
             auto YPROJ = [&](float hgt, float tz, float sc){ return H/2.0f - (hgt + tz*P.pitch) * sc; };
             float y1a = YPROJ(yc , tz1, xs1), y1b = YPROJ(yf , tz1, xs1);
@@ -268,20 +268,20 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 int cyb = clampi((int)ybf, wt, wb);
 
                 uint32_t ceilSurf = packSurf(now.sect, SurfaceRef::Ceiling, 0);
-                if(sec.ceilSky) skySpan(x, wt, cya-1, sec.ceilCol, sec.ceilTexId, ceilSurf);
-                else            planeSpan(P, x, wt, cya-1, sec.ceil, sec.ceilCol, ceilSurf, sec.ceilTex, sec.ceilTexId);
-                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorCol, packSurf(now.sect, SurfaceRef::Floor, 0), sec.floorTex, sec.floorTexId);
+                if(sec.ceilingIsSky) skySpan(x, wt, cya-1, sec.ceilingColor, sec.ceilingTextureId, ceilSurf);
+                else            planeSpan(P, x, wt, cya-1, sec.ceiling, sec.ceilingColor, ceilSurf, sec.ceilingTexture, sec.ceilingTextureId);
+                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorColor, packSurf(now.sect, SurfaceRef::Floor, 0), sec.floorTexture, sec.floorTextureId);
 
                 uint32_t wsurf = packSurf(now.sect, SurfaceRef::Wall, s);
-                const TexXform& wtx = sec.wallTex[s];
-                int wid = sec.wallTexId[s];
+                const TextureTransform& wtx = sec.wallTextures[s];
+                int wid = sec.wallTextureIds[s];
                 if(nb < 0){
-                    wallSpan(x, yaf, ybf, sec.ceil, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx, wid);
+                    wallSpan(x, yaf, ybf, sec.ceiling, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid);
                 } else {
                     float naf = n1a + (n2a - n1a) * t;
                     float nbf = n1b + (n2b - n1b) * t;
-                    wallSpan(x, yaf, naf, sec.ceil, map.sectors[nb].ceil,  wt, wb, u, sec.wallCol, dep, wsurf, wtx, wid);
-                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallCol, dep, wsurf, wtx, wid);
+                    wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling,  wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid);
+                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid);
                     // shrink the LIVE window (monotonically) for queued children
                     ytop_[x] = std::max(ytop_[x], clampi(std::max((int)yaf, (int)naf), wt, H-1));
                     ybot_[x] = std::min(ybot_[x], clampi(std::min((int)ybf, (int)nbf), 0,  wb));
@@ -301,7 +301,7 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
     std::vector<int> order(ns);
     std::vector<float> depth(ns);
     for(int i = 0; i < ns; ++i){
-        float rx = map.sprites[i].pos.x - P.x, ry = map.sprites[i].pos.y - P.y;
+        float rx = map.sprites[i].position.x - P.x, ry = map.sprites[i].position.y - P.y;
         depth[i] = rx*P.vcos + ry*P.vsin;
         order[i] = i;
     }
@@ -314,7 +314,7 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
     for(int o = 0; o < ns; ++o){
         int si = order[o];
         const Sprite& sp = map.sprites[si];
-        float rx = sp.pos.x - P.x, ry = sp.pos.y - P.y;
+        float rx = sp.position.x - P.x, ry = sp.position.y - P.y;
         float tz = rx*P.vcos + ry*P.vsin;
         if(tz < 0.2f) continue;
         float tx = rx*P.vsin - ry*P.vcos;
@@ -335,7 +335,7 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
             for(int y = std::max(yt,0); y <= std::min(yb,H-1); ++y){
                 if(tz >= zbuf_[y*W + x]) continue;
                 float vv = (y - yt) / (float)(yb - yt);
-                uint32_t c = spriteTex(sp.col, uu, vv);
+                uint32_t c = spriteTex(sp.color, uu, vv);
                 if(c){
                     fb_[y*W + x] = shade(c, fade);
 #if EDITOR
@@ -355,10 +355,10 @@ void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim,
 
     for(int i = 0; i < (int)map.sectors.size(); ++i){
         const Sector& s = map.sectors[i];
-        int np = (int)s.vert.size();
+        int np = (int)s.vertices.size();
         for(int w = 0; w < np; ++w){
-            Vec2 a = s.vert[w], b = s.vert[(w+1) % np];
-            uint32_t c = (s.neigh[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
+            Vec2 a = s.vertices[w], b = s.vertices[(w+1) % np];
+            uint32_t c = (s.neighbors[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
             if(i == aim.sector) c = 0xFFff30ff;                              // aimed sector
             if(aim.kind == SurfaceRef::Wall && i == aim.sector && w == aim.wall)
                 c = 0xFFffe020;                                             // aimed wall = yellow
@@ -366,8 +366,8 @@ void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim,
         }
     }
     for(const Sprite& s : map.sprites){
-        int sx = MX(s.pos.x), sy = MY(s.pos.y);
-        for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(sx+dx, sy+dy, s.col);
+        int sx = MX(s.position.x), sy = MY(s.position.y);
+        for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(sx+dx, sy+dy, s.color);
     }
     {   // stored player start = cyan
         int sx = MX(start.x), sy = MY(start.y);
@@ -401,10 +401,10 @@ void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
     // walls (portal = green, solid = grey; aimed wall = yellow)
     for(int s = 0; s < (int)m.sectors.size(); ++s){
         const Sector& S = m.sectors[s];
-        int n = (int)S.vert.size();
+        int n = (int)S.vertices.size();
         for(int w = 0; w < n; ++w){
-            Vec2 a = S.vert[w], b = S.vert[(w+1)%n];
-            uint32_t c = (S.neigh[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
+            Vec2 a = S.vertices[w], b = S.vertices[(w+1)%n];
+            uint32_t c = (S.neighbors[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
             if(s == hwSec && w == hwWall) c = 0xFFffe020;
             line2d(SX(a.x), SY(a.y), SX(b.x), SY(b.y), c);
         }
@@ -412,8 +412,8 @@ void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
     // vertices (hovered one is a bigger yellow box)
     for(int s = 0; s < (int)m.sectors.size(); ++s){
         const Sector& S = m.sectors[s];
-        for(int i = 0; i < (int)S.vert.size(); ++i){
-            int vx = SX(S.vert[i].x), vy = SY(S.vert[i].y);
+        for(int i = 0; i < (int)S.vertices.size(); ++i){
+            int vx = SX(S.vertices[i].x), vy = SY(S.vertices[i].y);
             bool hot = (s == hovSec && i == hovVert);
             uint32_t c = hot ? 0xFFffe020 : 0xFFdfe6f0;
             int r = hot ? 3 : 2;

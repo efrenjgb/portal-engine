@@ -22,9 +22,9 @@ struct VHit { int sec = -1, idx = -1; };
 static VHit pickVertex(const Map& m, float sc, float ox, float oy, int mx, int my){
     VHit h; float best = 8.0f*8.0f;
     for(int s = 0; s < (int)m.sectors.size(); ++s)
-        for(int i = 0; i < (int)m.sectors[s].vert.size(); ++i){
-            float dx = ox + m.sectors[s].vert[i].x*sc - mx;
-            float dy = oy - m.sectors[s].vert[i].y*sc - my;
+        for(int i = 0; i < (int)m.sectors[s].vertices.size(); ++i){
+            float dx = ox + m.sectors[s].vertices[i].x*sc - mx;
+            float dy = oy - m.sectors[s].vertices[i].y*sc - my;
             float d = dx*dx + dy*dy;
             if(d < best){ best = d; h = {s, i}; }
         }
@@ -35,9 +35,9 @@ static VHit pickWall(const Map& m, float sc, float ox, float oy, int mx, int my,
     VHit h; float best = 7.0f*7.0f;
     for(int s = 0; s < (int)m.sectors.size(); ++s){
         const Sector& S = m.sectors[s];
-        int n = (int)S.vert.size();
+        int n = (int)S.vertices.size();
         for(int w = 0; w < n; ++w){
-            Vec2 a = S.vert[w], b = S.vert[(w+1)%n];
+            Vec2 a = S.vertices[w], b = S.vertices[(w+1)%n];
             float ax = ox+a.x*sc, ay = oy-a.y*sc, bx = ox+b.x*sc, by = oy-b.y*sc;
             float ex = bx-ax, ey = by-ay, L2 = ex*ex+ey*ey; if(L2 < 1e-6f) continue;
             float t = ((mx-ax)*ex + (my-ay)*ey)/L2; if(t < 0) t = 0; if(t > 1) t = 1;
@@ -51,27 +51,27 @@ static VHit pickWall(const Map& m, float sc, float ox, float oy, int mx, int my,
 // every (sector,index) vertex coincident with p — so a drag keeps portals joined
 static void collectCoincident(const Map& m, Vec2 p, std::vector<std::pair<int,int>>& out){
     for(int s = 0; s < (int)m.sectors.size(); ++s)
-        for(int i = 0; i < (int)m.sectors[s].vert.size(); ++i)
-            if(vclose(m.sectors[s].vert[i], p)) out.push_back({s, i});
+        for(int i = 0; i < (int)m.sectors[s].vertices.size(); ++i)
+            if(vclose(m.sectors[s].vertices[i], p)) out.push_back({s, i});
 }
 // split wall w of sector s at point p (and the matching wall of a portal neighbour)
 static void splitWall(Map& m, int s, int w, Vec2 p){
     auto ins = [&](Sector& S, int at){
-        S.vert.insert(S.vert.begin()+at+1, p);
-        S.neigh.insert(S.neigh.begin()+at+1, S.neigh[at]);
-        S.wallTex.insert(S.wallTex.begin()+at+1, S.wallTex[at]);
-        S.wallTexId.insert(S.wallTexId.begin()+at+1, S.wallTexId[at]);
+        S.vertices.insert(S.vertices.begin()+at+1, p);
+        S.neighbors.insert(S.neighbors.begin()+at+1, S.neighbors[at]);
+        S.wallTextures.insert(S.wallTextures.begin()+at+1, S.wallTextures[at]);
+        S.wallTextureIds.insert(S.wallTextureIds.begin()+at+1, S.wallTextureIds[at]);
     };
     Sector& S = m.sectors[s];
-    int n = (int)S.vert.size();
-    Vec2 a = S.vert[w], b = S.vert[(w+1)%n];
-    int nb = S.neigh[w];
+    int n = (int)S.vertices.size();
+    Vec2 a = S.vertices[w], b = S.vertices[(w+1)%n];
+    int nb = S.neighbors[w];
     ins(S, w);
     if(nb >= 0){                                   // split the neighbour's matching (reversed) wall
         Sector& N = m.sectors[nb];
-        int nn = (int)N.vert.size();
+        int nn = (int)N.vertices.size();
         for(int i = 0; i < nn; ++i)
-            if(vclose(N.vert[i], b) && vclose(N.vert[(i+1)%nn], a)){ ins(N, i); break; }
+            if(vclose(N.vertices[i], b) && vclose(N.vertices[(i+1)%nn], a)){ ins(N, i); break; }
     }
 }
 // delete the vertex at p (and every coincident copy) from each sector that uses
@@ -83,15 +83,15 @@ static bool deleteVertex(Map& m, Vec2 p){
     std::vector<std::pair<int,int>> hits;
     collectCoincident(m, p, hits);
     if(hits.empty()) return false;
-    for(auto& h : hits) if((int)m.sectors[h.first].vert.size() <= 3) return false;
+    for(auto& h : hits) if((int)m.sectors[h.first].vertices.size() <= 3) return false;
     std::sort(hits.begin(), hits.end(),                // erase high indices first
               [](const std::pair<int,int>& a, const std::pair<int,int>& b){ return a.second > b.second; });
     for(auto& h : hits){
         Sector& S = m.sectors[h.first]; int i = h.second;
-        S.vert.erase(S.vert.begin()+i);
-        S.neigh.erase(S.neigh.begin()+i);
-        S.wallTex.erase(S.wallTex.begin()+i);
-        S.wallTexId.erase(S.wallTexId.begin()+i);
+        S.vertices.erase(S.vertices.begin()+i);
+        S.neighbors.erase(S.neighbors.begin()+i);
+        S.wallTextures.erase(S.wallTextures.begin()+i);
+        S.wallTextureIds.erase(S.wallTextureIds.begin()+i);
     }
     return true;
 }
@@ -104,25 +104,25 @@ static void rebuildPortals(Map& m){
     int ns = (int)m.sectors.size();
     for(int s = 0; s < ns; ++s){
         Sector& S = m.sectors[s];
-        int n = (int)S.vert.size();
+        int n = (int)S.vertices.size();
         for(int w = 0; w < n; ++w){
-            Vec2 a = S.vert[w], b = S.vert[(w+1)%n];
+            Vec2 a = S.vertices[w], b = S.vertices[(w+1)%n];
             int found = -1;
             for(int t = 0; t < ns && found < 0; ++t){
                 if(t == s) continue;
-                const Sector& N = m.sectors[t]; int nn = (int)N.vert.size();
+                const Sector& N = m.sectors[t]; int nn = (int)N.vertices.size();
                 for(int i = 0; i < nn; ++i)
-                    if(vclose(N.vert[i], b) && vclose(N.vert[(i+1)%nn], a)){ found = t; break; }
+                    if(vclose(N.vertices[i], b) && vclose(N.vertices[(i+1)%nn], a)){ found = t; break; }
             }
-            S.neigh[w] = found;
+            S.neighbors[w] = found;
         }
     }
 }
 // point-in-polygon (even-odd rule) for inheriting a new sector's look.
 static bool pointInSector(const Sector& S, Vec2 p){
-    bool in = false; int n = (int)S.vert.size();
+    bool in = false; int n = (int)S.vertices.size();
     for(int i = 0, j = n-1; i < n; j = i++){
-        Vec2 a = S.vert[i], b = S.vert[j];
+        Vec2 a = S.vertices[i], b = S.vertices[j];
         if(((a.y > p.y) != (b.y > p.y)) &&
            (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) in = !in;
     }
@@ -141,19 +141,19 @@ static bool addSector(Map& m, std::vector<Vec2> pts){
     if(area2 < 0) std::reverse(pts.begin(), pts.end());// CW -> CCW
 
     Sector S;
-    S.floor = 0.0f; S.ceil = 4.5f;                     // neutral defaults
-    S.floorCol = 0xFF243447; S.ceilCol = 0xFF1b2230; S.wallCol = 0xFF6f7d8c;
+    S.floor = 0.0f; S.ceiling = 4.5f;                     // neutral defaults
+    S.floorColor = 0xFF243447; S.ceilingColor = 0xFF1b2230; S.wallColor = 0xFF6f7d8c;
     Vec2 c{0,0}; for(auto& v : pts){ c.x += v.x; c.y += v.y; } c.x /= n; c.y /= n;
     for(const Sector& E : m.sectors)                   // inherit from the sector we're inside
         if(pointInSector(E, c)){
-            S.floor = E.floor; S.ceil = E.ceil;
-            S.floorCol = E.floorCol; S.ceilCol = E.ceilCol; S.wallCol = E.wallCol;
+            S.floor = E.floor; S.ceiling = E.ceiling;
+            S.floorColor = E.floorColor; S.ceilingColor = E.ceilingColor; S.wallColor = E.wallColor;
             break;
         }
-    S.vert = pts;
-    S.neigh.assign(n, -1);
-    S.wallTex.assign(n, TexXform{});
-    S.wallTexId.assign(n, -1);
+    S.vertices = pts;
+    S.neighbors.assign(n, -1);
+    S.wallTextures.assign(n, TextureTransform{});
+    S.wallTextureIds.assign(n, -1);
     m.sectors.push_back(std::move(S));
     rebuildPortals(m);
     return true;
@@ -243,7 +243,7 @@ int main(int argc, char** argv){
     auto s2wy = [&](int sy){ return (mvOy - sy) / mvScale; };
     auto fitView = [&](){                                              // frame the whole map
         float minx=1e9f, miny=1e9f, maxx=-1e9f, maxy=-1e9f;
-        for(auto& S : map.sectors) for(auto& v : S.vert){
+        for(auto& S : map.sectors) for(auto& v : S.vertices){
             minx=std::min(minx,v.x); maxx=std::max(maxx,v.x);
             miny=std::min(miny,v.y); maxy=std::max(maxy,v.y); }
         float wsp = maxx-minx+1e-3f, hsp = maxy-miny+1e-3f;
@@ -289,7 +289,7 @@ int main(int argc, char** argv){
                     }
                     if(!closed){                                      // snap to an existing vertex, else grid
                         VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-                        drawPts.push_back(v.idx >= 0 ? map.sectors[v.sec].vert[v.idx]
+                        drawPts.push_back(v.idx >= 0 ? map.sectors[v.sec].vertices[v.idx]
                                                      : snap({ s2wx(mouseX), s2wy(mouseY) }));
                     }
                 } else {
@@ -297,7 +297,7 @@ int main(int argc, char** argv){
                     dragVerts.clear();
                     if(v.idx >= 0){                                   // grab a vertex (+coincident)
                         pushUndo();
-                        collectCoincident(map, map.sectors[v.sec].vert[v.idx], dragVerts);
+                        collectCoincident(map, map.sectors[v.sec].vertices[v.idx], dragVerts);
                     } else {                                          // else split the wall here
                         Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
                         if(w.idx >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sec, w.idx, proj); rebuildPortals(map); collectCoincident(map, proj, dragVerts); }
@@ -345,7 +345,7 @@ int main(int argc, char** argv){
                             VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
                             if(v.idx >= 0){
                                 pushUndo();
-                                if(!deleteVertex(map, map.sectors[v.sec].vert[v.idx])){
+                                if(!deleteVertex(map, map.sectors[v.sec].vertices[v.idx])){
                                     undo.pop_back();          // nothing removed: drop the snapshot
                                     printf("can't delete: a sector would drop below 3 vertices\n");
                                 } else { rebuildPortals(map); dragVerts.clear(); printf("deleted vertex\n"); }
@@ -359,9 +359,9 @@ int main(int argc, char** argv){
                     int n = (int)texSet.size(), *idp = nullptr;
                     if(a.sector >= 0 && a.sector < (int)map.sectors.size()){
                         Sector& sc = map.sectors[a.sector];
-                        if(a.kind == SurfaceRef::Wall && a.wall < (int)sc.wallTexId.size()) idp = &sc.wallTexId[a.wall];
-                        else if(a.kind == SurfaceRef::Floor)   idp = &sc.floorTexId;
-                        else if(a.kind == SurfaceRef::Ceiling) idp = &sc.ceilTexId;
+                        if(a.kind == SurfaceRef::Wall && a.wall < (int)sc.wallTextureIds.size()) idp = &sc.wallTextureIds[a.wall];
+                        else if(a.kind == SurfaceRef::Floor)   idp = &sc.floorTextureId;
+                        else if(a.kind == SurfaceRef::Ceiling) idp = &sc.ceilingTextureId;
                     }
                     if(idp){ *idp = (*idp + 1 >= n) ? -1 : *idp + 1;
                              printf("texture id = %d %s\n", *idp, *idp < 0 ? "(procedural)" : ""); }
@@ -369,7 +369,7 @@ int main(int argc, char** argv){
                 if(k == SDLK_o){   // toggle sky backdrop on the aimed ceiling
                     SurfaceRef a = renderer.pickAt(W/2, H/2);
                     if(a.kind == SurfaceRef::Ceiling && a.sector >= 0 && a.sector < (int)map.sectors.size()){
-                        bool& sky = map.sectors[a.sector].ceilSky;
+                        bool& sky = map.sectors[a.sector].ceilingIsSky;
                         sky = !sky;
                         printf("sector %d ceiling sky = %s\n", a.sector, sky ? "on" : "off");
                     }
@@ -403,7 +403,7 @@ int main(int argc, char** argv){
             if(ks[SDL_SCANCODE_DOWN])  mvOy -= pan;
             if(!dragVerts.empty()){           // drag held vertex (+ coincident copies)
                 Vec2 wp = snap({ s2wx(mouseX), s2wy(mouseY) });
-                for(auto& pr : dragVerts) map.sectors[pr.first].vert[pr.second] = wp;
+                for(auto& pr : dragVerts) map.sectors[pr.first].vertices[pr.second] = wp;
                 rebuildPortals(map);          // bond/break portals as walls meet or part
             }
         } else
@@ -448,16 +448,16 @@ int main(int argc, char** argv){
                     Sprite& sp = map.sprites[aim.sprite];
                     float lo = -8.0f, hi = 18.0f;     // clamp to its sector: feet on the
                     for(const Sector& S : map.sectors) // floor, head under the ceiling
-                        if(pointInSector(S, sp.pos)){ lo = S.floor; hi = std::max(S.floor, S.ceil - sp.height); break; }
+                        if(pointInSector(S, sp.position)){ lo = S.floor; hi = std::max(S.floor, S.ceiling - sp.height); break; }
                     if(ks[SDL_SCANCODE_T]) sp.z = std::min(sp.z + rate, hi);
                     if(ks[SDL_SCANCODE_G]) sp.z = std::max(sp.z - rate, lo);
                 } else if(aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
                     Sector& t = map.sectors[aim.sector];
                     if(player.cam.pitch < 0.0f){      // looking up -> ceiling
-                        if(ks[SDL_SCANCODE_T]) t.ceil = std::min(t.ceil + rate, 18.0f);
-                        if(ks[SDL_SCANCODE_G]) t.ceil = std::max(t.ceil - rate, t.floor + 0.3f);
+                        if(ks[SDL_SCANCODE_T]) t.ceiling = std::min(t.ceiling + rate, 18.0f);
+                        if(ks[SDL_SCANCODE_G]) t.ceiling = std::max(t.ceiling - rate, t.floor + 0.3f);
                     } else {                          // looking down / level -> floor
-                        if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceil - 0.3f);
+                        if(ks[SDL_SCANCODE_T]) t.floor = std::min(t.floor + rate, t.ceiling - 0.3f);
                         if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
                     }
                 }
@@ -466,20 +466,20 @@ int main(int argc, char** argv){
             // texture wrap/pan still acts on the exact surface under the crosshair
             if(aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
                 Sector& t = map.sectors[aim.sector];
-                TexXform* tx = nullptr;
-                if(aim.kind == SurfaceRef::Wall && aim.wall < (int)t.wallTex.size()) tx = &t.wallTex[aim.wall];
-                else if(aim.kind == SurfaceRef::Floor)   tx = &t.floorTex;
-                else if(aim.kind == SurfaceRef::Ceiling) tx = &t.ceilTex;
+                TextureTransform* tx = nullptr;
+                if(aim.kind == SurfaceRef::Wall && aim.wall < (int)t.wallTextures.size()) tx = &t.wallTextures[aim.wall];
+                else if(aim.kind == SurfaceRef::Floor)   tx = &t.floorTexture;
+                else if(aim.kind == SurfaceRef::Ceiling) tx = &t.ceilingTexture;
                 if(tx){
                     float pan = 1.5f * dt, sf = 1.0f + 1.5f * dt;
-                    if(ks[SDL_SCANCODE_RIGHTBRACKET]){ tx->us *= sf; tx->vs *= sf; }
-                    if(ks[SDL_SCANCODE_LEFTBRACKET]) { tx->us /= sf; tx->vs /= sf; }
-                    tx->us = clampf(tx->us, 0.1f, 16.0f);
-                    tx->vs = clampf(tx->vs, 0.1f, 16.0f);
-                    if(ks[SDL_SCANCODE_APOSTROPHE]) tx->uo += pan;
-                    if(ks[SDL_SCANCODE_SEMICOLON])  tx->uo -= pan;
-                    if(ks[SDL_SCANCODE_PERIOD])     tx->vo += pan;
-                    if(ks[SDL_SCANCODE_COMMA])      tx->vo -= pan;
+                    if(ks[SDL_SCANCODE_RIGHTBRACKET]){ tx->uScale *= sf; tx->vScale *= sf; }
+                    if(ks[SDL_SCANCODE_LEFTBRACKET]) { tx->uScale /= sf; tx->vScale /= sf; }
+                    tx->uScale = clampf(tx->uScale, 0.1f, 16.0f);
+                    tx->vScale = clampf(tx->vScale, 0.1f, 16.0f);
+                    if(ks[SDL_SCANCODE_APOSTROPHE]) tx->uOffset += pan;
+                    if(ks[SDL_SCANCODE_SEMICOLON])  tx->uOffset -= pan;
+                    if(ks[SDL_SCANCODE_PERIOD])     tx->vOffset += pan;
+                    if(ks[SDL_SCANCODE_COMMA])      tx->vOffset -= pan;
                 }
             }
         }

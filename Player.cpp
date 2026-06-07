@@ -17,19 +17,19 @@ static bool segCross(float x1,float y1,float x2,float y2,
 void Player::move(const Map& map, float dx, float dy){
     for(int iter = 0; iter < 4; ++iter){            // slide, then re-check
         const Sector& sec = map.sectors[sector];
-        int n = (int)sec.vert.size(), hit = -1;
+        int n = (int)sec.vertices.size(), hit = -1;
         for(int s = 0; s < n; ++s){
-            Vec2 a = sec.vert[s], b = sec.vert[(s+1) % n];
+            Vec2 a = sec.vertices[s], b = sec.vertices[(s+1) % n];
             if(segCross(cam.x, cam.y, cam.x+dx, cam.y+dy, a.x, a.y, b.x, b.y)){ hit = s; break; }
         }
         if(hit < 0) break;
 
-        Vec2 a = sec.vert[hit], b = sec.vert[(hit+1) % n];
-        int nb = sec.neigh[hit];
+        Vec2 a = sec.vertices[hit], b = sec.vertices[(hit+1) % n];
+        int nb = sec.neighbors[hit];
         bool passable = false;
         if(nb >= 0){
             float step = map.sectors[nb].floor - sec.floor;
-            float head = map.sectors[nb].ceil  - map.sectors[nb].floor;
+            float head = map.sectors[nb].ceiling  - map.sectors[nb].floor;
             if(step <= MAX_STEP && head >= BODY) passable = true;
         }
         if(passable){ sector = nb; break; }         // step through the portal
@@ -43,13 +43,13 @@ void Player::move(const Map& map, float dx, float dy){
 
 void Player::keepInside(const Map& map){
     const Sector& sec = map.sectors[sector];
-    int n = (int)sec.vert.size();
+    int n = (int)sec.vertices.size();
     for(int s = 0; s < n; ++s){
-        Vec2 a = sec.vert[s], b = sec.vert[(s+1) % n];
+        Vec2 a = sec.vertices[s], b = sec.vertices[(s+1) % n];
         // Solid walls keep a full body radius; portals only a hair, so you can
         // walk right through them (the renderer's frustum clip handles being on
         // top of a portal, so no larger standoff is needed).
-        float margin = (sec.neigh[s] < 0) ? PLAYER_R : 0.01f;
+        float margin = (sec.neighbors[s] < 0) ? PLAYER_R : 0.01f;
         float ex = b.x - a.x, ey = b.y - a.y;
         float L2 = ex*ex + ey*ey;
         if(L2 < 1e-12f) continue;
@@ -68,7 +68,7 @@ void Player::collideSprites(const Map& map){
     float feet = map.sectors[sector].floor, head = feet + BODY;
     for(const Sprite& s : map.sprites){
         if(s.z + s.height < feet || s.z > head) continue;   // no height overlap
-        float dx = cam.x - s.pos.x, dy = cam.y - s.pos.y;
+        float dx = cam.x - s.position.x, dy = cam.y - s.position.y;
         float r  = PLAYER_R + s.radius;
         float d2 = dx*dx + dy*dy;
         if(d2 >= r*r) continue;
@@ -83,10 +83,10 @@ int Player::pickSector(const Map& map) const {
     int sec = sector;
     for(int iter = 0; iter < 64; ++iter){
         const Sector& s = map.sectors[sec];
-        int n = (int)s.vert.size();
+        int n = (int)s.vertices.size();
         float bt = 1e30f; int bw = -1;
         for(int w = 0; w < n; ++w){
-            Vec2 a = s.vert[w], b = s.vert[(w+1) % n];
+            Vec2 a = s.vertices[w], b = s.vertices[(w+1) % n];
             float ex = b.x - a.x, ey = b.y - a.y;
             float den = dx*ey - dy*ex;
             if(std::fabs(den) < 1e-9f) continue;
@@ -95,7 +95,7 @@ int Player::pickSector(const Map& map) const {
             if(t > 1e-4f && u >= 0.0f && u <= 1.0f && t < bt){ bt = t; bw = w; }
         }
         if(bw < 0) break;
-        int nb = s.neigh[bw];
+        int nb = s.neighbors[bw];
         if(nb < 0) break;
         sec = nb;
         px += dx * (bt + 1e-3f);

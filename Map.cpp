@@ -31,8 +31,8 @@ std::optional<Map> loadMap(const std::string& path){
         } else if(!strcmp(kw, "sector")){
             float fl, ce; unsigned fc, cc, wc;
             if(sscanf(p, "%*s %f %f %x %x %x", &fl, &ce, &fc, &cc, &wc) != 5){ fprintf(stderr, "map:%d bad sector\n", ln); fclose(f); return std::nullopt; }
-            Sector S; S.floor = fl; S.ceil = ce;
-            S.floorCol = 0xFF000000u|fc; S.ceilCol = 0xFF000000u|cc; S.wallCol = 0xFF000000u|wc;
+            Sector S; S.floor = fl; S.ceiling = ce;
+            S.floorColor = 0xFF000000u|fc; S.ceilingColor = 0xFF000000u|cc; S.wallColor = 0xFF000000u|wc;
             m.sectors.push_back(std::move(S));
             cur = (int)m.sectors.size() - 1;
         } else if(!strcmp(kw, "texture")){
@@ -41,28 +41,28 @@ std::optional<Map> loadMap(const std::string& path){
             m.textures.push_back(file);
         } else if(!strcmp(kw, "wall")){
             if(cur < 0){ fprintf(stderr, "map:%d wall before sector\n", ln); fclose(f); return std::nullopt; }
-            float x, y; int nb, texId = -1; TexXform tx;
+            float x, y; int nb, texId = -1; TextureTransform tx;
             int got = sscanf(p, "%*s %f %f %d %f %f %f %f %d", &x, &y, &nb,
-                             &tx.us, &tx.vs, &tx.uo, &tx.vo, &texId);
+                             &tx.uScale, &tx.vScale, &tx.uOffset, &tx.vOffset, &texId);
             if(got != 3 && got != 7 && got != 8){ fprintf(stderr, "map:%d bad wall\n", ln); fclose(f); return std::nullopt; }
-            m.sectors[cur].vert.push_back({x, y});
-            m.sectors[cur].neigh.push_back(nb);
-            m.sectors[cur].wallTex.push_back(tx);
-            m.sectors[cur].wallTexId.push_back(texId);
+            m.sectors[cur].vertices.push_back({x, y});
+            m.sectors[cur].neighbors.push_back(nb);
+            m.sectors[cur].wallTextures.push_back(tx);
+            m.sectors[cur].wallTextureIds.push_back(texId);
         } else if(!strcmp(kw, "floortex") || !strcmp(kw, "ceiltex")){
             if(cur < 0){ fprintf(stderr, "map:%d %s before sector\n", ln, kw); fclose(f); return std::nullopt; }
-            TexXform tx; int texId = -1;
-            int got = sscanf(p, "%*s %f %f %f %f %d", &tx.us, &tx.vs, &tx.uo, &tx.vo, &texId);
+            TextureTransform tx; int texId = -1;
+            int got = sscanf(p, "%*s %f %f %f %f %d", &tx.uScale, &tx.vScale, &tx.uOffset, &tx.vOffset, &texId);
             if(got != 4 && got != 5){ fprintf(stderr, "map:%d bad %s\n", ln, kw); fclose(f); return std::nullopt; }
-            if(kw[0] == 'f'){ m.sectors[cur].floorTex = tx; m.sectors[cur].floorTexId = texId; }
-            else            { m.sectors[cur].ceilTex  = tx; m.sectors[cur].ceilTexId  = texId; }
+            if(kw[0] == 'f'){ m.sectors[cur].floorTexture = tx; m.sectors[cur].floorTextureId = texId; }
+            else            { m.sectors[cur].ceilingTexture  = tx; m.sectors[cur].ceilingTextureId  = texId; }
         } else if(!strcmp(kw, "ceilsky")){
             if(cur < 0){ fprintf(stderr, "map:%d ceilsky before sector\n", ln); fclose(f); return std::nullopt; }
-            m.sectors[cur].ceilSky = true;
+            m.sectors[cur].ceilingIsSky = true;
         } else if(!strcmp(kw, "sprite")){
             float x, y, z, r, h; unsigned col;
             if(sscanf(p, "%*s %f %f %f %f %f %x", &x, &y, &z, &r, &h, &col) != 6){ fprintf(stderr, "map:%d bad sprite\n", ln); fclose(f); return std::nullopt; }
-            Sprite S; S.pos = {x, y}; S.z = z; S.radius = r; S.height = h; S.col = 0xFF000000u|col;
+            Sprite S; S.position = {x, y}; S.z = z; S.radius = r; S.height = h; S.color = 0xFF000000u|col;
             m.sprites.push_back(S);
         } else {
             fprintf(stderr, "map:%d unknown keyword '%s'\n", ln, kw);
@@ -72,7 +72,7 @@ std::optional<Map> loadMap(const std::string& path){
 
     if(m.sectors.empty()){ fprintf(stderr, "map: no sectors defined\n"); return std::nullopt; }
     for(size_t i = 0; i < m.sectors.size(); ++i)
-        for(int nb : m.sectors[i].neigh)
+        for(int nb : m.sectors[i].neighbors)
             if(nb >= (int)m.sectors.size()){
                 fprintf(stderr, "map: sector %zu has bad neighbour %d\n", i, nb); return std::nullopt;
             }
@@ -92,36 +92,36 @@ bool saveMap(const Map& m, const std::string& path){
     fprintf(f, "player %g %g %d %g\n\n",
             m.playerStart.x, m.playerStart.y, m.startSector, m.startAngle * 180.0f / PI_F);
     for(const Sector& s : m.sectors){
-        fprintf(f, "sector %g %g %06x %06x %06x\n", s.floor, s.ceil,
-                (unsigned)(s.floorCol & 0xFFFFFF),
-                (unsigned)(s.ceilCol  & 0xFFFFFF),
-                (unsigned)(s.wallCol  & 0xFFFFFF));
-        for(size_t w = 0; w < s.vert.size(); ++w){
-            const TexXform& tx = s.wallTex[w];
-            int id = s.wallTexId[w];
+        fprintf(f, "sector %g %g %06x %06x %06x\n", s.floor, s.ceiling,
+                (unsigned)(s.floorColor & 0xFFFFFF),
+                (unsigned)(s.ceilingColor  & 0xFFFFFF),
+                (unsigned)(s.wallColor  & 0xFFFFFF));
+        for(size_t w = 0; w < s.vertices.size(); ++w){
+            const TextureTransform& tx = s.wallTextures[w];
+            int id = s.wallTextureIds[w];
             if(id >= 0)
-                fprintf(f, "  wall %g %g %d %g %g %g %g %d\n", s.vert[w].x, s.vert[w].y,
-                        s.neigh[w], tx.us, tx.vs, tx.uo, tx.vo, id);
+                fprintf(f, "  wall %g %g %d %g %g %g %g %d\n", s.vertices[w].x, s.vertices[w].y,
+                        s.neighbors[w], tx.uScale, tx.vScale, tx.uOffset, tx.vOffset, id);
             else if(!tx.isDefault())
-                fprintf(f, "  wall %g %g %d %g %g %g %g\n", s.vert[w].x, s.vert[w].y,
-                        s.neigh[w], tx.us, tx.vs, tx.uo, tx.vo);
+                fprintf(f, "  wall %g %g %d %g %g %g %g\n", s.vertices[w].x, s.vertices[w].y,
+                        s.neighbors[w], tx.uScale, tx.vScale, tx.uOffset, tx.vOffset);
             else
-                fprintf(f, "  wall %g %g %d\n", s.vert[w].x, s.vert[w].y, s.neigh[w]);
+                fprintf(f, "  wall %g %g %d\n", s.vertices[w].x, s.vertices[w].y, s.neighbors[w]);
         }
-        if(s.floorTexId >= 0)
-            fprintf(f, "  floortex %g %g %g %g %d\n", s.floorTex.us, s.floorTex.vs, s.floorTex.uo, s.floorTex.vo, s.floorTexId);
-        else if(!s.floorTex.isDefault())
-            fprintf(f, "  floortex %g %g %g %g\n", s.floorTex.us, s.floorTex.vs, s.floorTex.uo, s.floorTex.vo);
-        if(s.ceilTexId >= 0)
-            fprintf(f, "  ceiltex %g %g %g %g %d\n", s.ceilTex.us, s.ceilTex.vs, s.ceilTex.uo, s.ceilTex.vo, s.ceilTexId);
-        else if(!s.ceilTex.isDefault())
-            fprintf(f, "  ceiltex %g %g %g %g\n", s.ceilTex.us, s.ceilTex.vs, s.ceilTex.uo, s.ceilTex.vo);
-        if(s.ceilSky) fprintf(f, "  ceilsky\n");
+        if(s.floorTextureId >= 0)
+            fprintf(f, "  floortex %g %g %g %g %d\n", s.floorTexture.uScale, s.floorTexture.vScale, s.floorTexture.uOffset, s.floorTexture.vOffset, s.floorTextureId);
+        else if(!s.floorTexture.isDefault())
+            fprintf(f, "  floortex %g %g %g %g\n", s.floorTexture.uScale, s.floorTexture.vScale, s.floorTexture.uOffset, s.floorTexture.vOffset);
+        if(s.ceilingTextureId >= 0)
+            fprintf(f, "  ceiltex %g %g %g %g %d\n", s.ceilingTexture.uScale, s.ceilingTexture.vScale, s.ceilingTexture.uOffset, s.ceilingTexture.vOffset, s.ceilingTextureId);
+        else if(!s.ceilingTexture.isDefault())
+            fprintf(f, "  ceiltex %g %g %g %g\n", s.ceilingTexture.uScale, s.ceilingTexture.vScale, s.ceilingTexture.uOffset, s.ceilingTexture.vOffset);
+        if(s.ceilingIsSky) fprintf(f, "  ceilsky\n");
         fprintf(f, "\n");
     }
     for(const Sprite& s : m.sprites)
-        fprintf(f, "sprite %g %g %g %g %g %06x\n", s.pos.x, s.pos.y, s.z,
-                s.radius, s.height, (unsigned)(s.col & 0xFFFFFF));
+        fprintf(f, "sprite %g %g %g %g %g %06x\n", s.position.x, s.position.y, s.z,
+                s.radius, s.height, (unsigned)(s.color & 0xFFFFFF));
 
     fclose(f);
     printf("saved map to '%s'\n", path.c_str());

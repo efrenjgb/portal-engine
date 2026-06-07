@@ -200,9 +200,15 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             const float NEARZ = NEAR_PLANE;
             const float slope = (W * 0.5f) / F_;             // tan(FOV/2): screen-edge tx/tz
 
-            // Near plane: if both ends are nearer than it (you're right on a
-            // portal) clamp them; otherwise slide the near one along the wall.
+            // Near plane. If both ends are nearer than it but still in FRONT of the
+            // camera, you're standing right on the wall — clamp both. But if one
+            // end is actually BEHIND the camera (a wall straddling the camera plane
+            // whose front part is only a sub-pixel sliver), skip it: clamping the
+            // behind end forward to NEARZ would fabricate a full-screen wall.
+            // (The normal straddle, where the front end is past NEARZ, is handled
+            // by the slide branches below and keeps the visible part.)
             if(tz1 < NEARZ && tz2 < NEARZ){
+                if(tz1 <= 0.0f || tz2 <= 0.0f) continue;
                 tz1 = NEARZ; tz2 = NEARZ;
             } else if(tz1 < NEARZ){
                 float t = (NEARZ - tz1) / (tz2 - tz1); tx1 += (tx2-tx1)*t; u1 += (u2-u1)*t; tz1 = NEARZ;

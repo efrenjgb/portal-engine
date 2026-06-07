@@ -270,7 +270,7 @@ int main(int argc, char** argv){
     struct Toast { std::string text; float ttl; };
     std::vector<Toast> toasts;
     auto showMessage = [&](std::string s){ toasts.push_back({ std::move(s), 3.0f });
-                                           if(toasts.size() > 5) toasts.erase(toasts.begin()); };
+                                           if(toasts.size() > 10) toasts.erase(toasts.begin()); };
 #endif
 
     while(running){

@@ -446,8 +446,11 @@ int main(int argc, char** argv){
                 if(aim.kind == SurfaceRef::Sprite &&
                    aim.sprite >= 0 && aim.sprite < (int)map.sprites.size()){
                     Sprite& sp = map.sprites[aim.sprite];
-                    if(ks[SDL_SCANCODE_T]) sp.z = std::min(sp.z + rate, 18.0f);
-                    if(ks[SDL_SCANCODE_G]) sp.z = std::max(sp.z - rate, -8.0f);
+                    float lo = -8.0f, hi = 18.0f;     // clamp to its sector: feet on the
+                    for(const Sector& S : map.sectors) // floor, head under the ceiling
+                        if(pointInSector(S, sp.pos)){ lo = S.floor; hi = std::max(S.floor, S.ceil - sp.height); break; }
+                    if(ks[SDL_SCANCODE_T]) sp.z = std::min(sp.z + rate, hi);
+                    if(ks[SDL_SCANCODE_G]) sp.z = std::max(sp.z - rate, lo);
                 } else if(aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
                     Sector& t = map.sectors[aim.sector];
                     if(player.cam.pitch < 0.0f){      // looking up -> ceiling

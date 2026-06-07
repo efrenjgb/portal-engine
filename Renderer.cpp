@@ -66,7 +66,7 @@ void Renderer::drawLine(int x0, int y0, int x1, int y1, uint32_t c){
 
 // Choose the image texture for an id, or nullptr to fall back to procedural.
 const Texture* Renderer::imageFor(int texId) const {
-    if(texId >= 0 && textures_ && texId < (int)textures_->size() && !(*textures_)[texId].px.empty())
+    if(texId >= 0 && textures_ && texId < (int)textures_->size() && !(*textures_)[texId].pixels.empty())
         return &(*textures_)[texId];
     return nullptr;
 }

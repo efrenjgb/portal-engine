@@ -14,9 +14,9 @@
 
 #if EDITOR
 // ---- 2D map-editor helpers (operate on the Map's vertices) -----------------
-static bool vclose(Vec2 a, Vec2 b){ float dx=a.x-b.x, dy=a.y-b.y; return dx*dx+dy*dy < 1e-4f; }
+static bool verticesEqual(Vec2 a, Vec2 b){ float dx=a.x-b.x, dy=a.y-b.y; return dx*dx+dy*dy < 1e-4f; }
 
-struct VHit { int sec = -1, idx = -1; };
+struct VHit { int sector = -1, index = -1; };
 
 // nearest vertex to screen point (within ~8 px)
 static VHit pickVertex(const Map& m, float sc, float ox, float oy, int mx, int my){
@@ -52,11 +52,11 @@ static VHit pickWall(const Map& m, float sc, float ox, float oy, int mx, int my,
 static void collectCoincident(const Map& m, Vec2 p, std::vector<std::pair<int,int>>& out){
     for(int s = 0; s < (int)m.sectors.size(); ++s)
         for(int i = 0; i < (int)m.sectors[s].vertices.size(); ++i)
-            if(vclose(m.sectors[s].vertices[i], p)) out.push_back({s, i});
+            if(verticesEqual(m.sectors[s].vertices[i], p)) out.push_back({s, i});
 }
 // split wall w of sector s at point p (and the matching wall of a portal neighbour)
 static void splitWall(Map& m, int s, int w, Vec2 p){
-    auto ins = [&](Sector& S, int at){
+    auto insertAt = [&](Sector& S, int at){
         S.vertices.insert(S.vertices.begin()+at+1, p);
         S.neighbors.insert(S.neighbors.begin()+at+1, S.neighbors[at]);
         S.wallTextures.insert(S.wallTextures.begin()+at+1, S.wallTextures[at]);
@@ -66,12 +66,12 @@ static void splitWall(Map& m, int s, int w, Vec2 p){
     int n = (int)S.vertices.size();
     Vec2 a = S.vertices[w], b = S.vertices[(w+1)%n];
     int nb = S.neighbors[w];
-    ins(S, w);
+    insertAt(S, w);
     if(nb >= 0){                                   // split the neighbour's matching (reversed) wall
         Sector& N = m.sectors[nb];
         int nn = (int)N.vertices.size();
         for(int i = 0; i < nn; ++i)
-            if(vclose(N.vertices[i], b) && vclose(N.vertices[(i+1)%nn], a)){ ins(N, i); break; }
+            if(verticesEqual(N.vertices[i], b) && verticesEqual(N.vertices[(i+1)%nn], a)){ insertAt(N, i); break; }
     }
 }
 // delete the vertex at p (and every coincident copy) from each sector that uses
@@ -112,7 +112,7 @@ static void rebuildPortals(Map& m){
                 if(t == s) continue;
                 const Sector& N = m.sectors[t]; int nn = (int)N.vertices.size();
                 for(int i = 0; i < nn; ++i)
-                    if(vclose(N.vertices[i], b) && vclose(N.vertices[(i+1)%nn], a)){ found = t; break; }
+                    if(verticesEqual(N.vertices[i], b) && verticesEqual(N.vertices[(i+1)%nn], a)){ found = t; break; }
             }
             S.neighbors[w] = found;
         }
@@ -289,18 +289,18 @@ int main(int argc, char** argv){
                     }
                     if(!closed){                                      // snap to an existing vertex, else grid
                         VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-                        drawPts.push_back(v.idx >= 0 ? map.sectors[v.sec].vertices[v.idx]
+                        drawPts.push_back(v.index >= 0 ? map.sectors[v.sector].vertices[v.index]
                                                      : snap({ s2wx(mouseX), s2wy(mouseY) }));
                     }
                 } else {
                     VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
                     dragVerts.clear();
-                    if(v.idx >= 0){                                   // grab a vertex (+coincident)
+                    if(v.index >= 0){                                   // grab a vertex (+coincident)
                         pushUndo();
-                        collectCoincident(map, map.sectors[v.sec].vertices[v.idx], dragVerts);
+                        collectCoincident(map, map.sectors[v.sector].vertices[v.index], dragVerts);
                     } else {                                          // else split the wall here
                         Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
-                        if(w.idx >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sec, w.idx, proj); rebuildPortals(map); collectCoincident(map, proj, dragVerts); }
+                        if(w.index >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sector, w.index, proj); rebuildPortals(map); collectCoincident(map, proj, dragVerts); }
                     }
                 }
             }
@@ -343,9 +343,9 @@ int main(int argc, char** argv){
                         }
                         if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x){
                             VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-                            if(v.idx >= 0){
+                            if(v.index >= 0){
                                 pushUndo();
-                                if(!deleteVertex(map, map.sectors[v.sec].vertices[v.idx])){
+                                if(!deleteVertex(map, map.sectors[v.sector].vertices[v.index])){
                                     undo.pop_back();          // nothing removed: drop the snapshot
                                     printf("can't delete: a sector would drop below 3 vertices\n");
                                 } else { rebuildPortals(map); dragVerts.clear(); printf("deleted vertex\n"); }
@@ -504,9 +504,9 @@ int main(int argc, char** argv){
             VHit hv, hw; Vec2 proj;
             if(!drawing){                          // no hover highlight while drawing
                 hv = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-                if(hv.idx < 0) hw = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
+                if(hv.index < 0) hw = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
             }
-            renderer.drawMapEditor(map, mvScale, mvOx, mvOy, hv.sec, hv.idx, hw.sec, hw.idx,
+            renderer.drawMapEditor(map, mvScale, mvOx, mvOy, hv.sector, hv.index, hw.sector, hw.index,
                                    { player.camera.x, player.camera.y }, player.camera.angle);
             if(drawing) renderer.drawPendingSector(drawPts, mvScale, mvOx, mvOy, mouseX, mouseY);
         } else

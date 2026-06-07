@@ -33,6 +33,10 @@ public:
                      Vec2 start, float startAngle);
     void crosshair(uint32_t col);
 
+    // HUD text via a built-in 5x7 bitmap font (uppercased; digits + A-Z + a few
+    // punctuation). Advances 6*scale px per glyph. Returns the drawn width in px.
+    int drawText(int x, int y, const char* text, uint32_t color, int scale = 2);
+
     // Full-screen top-down map editor. (sc, ox, oy) map world->screen as
     // sx = ox + wx*sc, sy = oy - wy*sc. hov*/hw* highlight a vertex / wall.
     void drawMapEditor(const Map& map, float sc, float ox, float oy,

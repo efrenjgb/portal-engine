@@ -236,6 +236,7 @@ int main(int argc, char** argv){
 
     bool running = true, mouseGrabbed = true, editMode = false;
     Uint32 prev = SDL_GetTicks();
+    float  fps = 0.0f;                      // smoothed frames/second, for the HUD
 #if EDITOR
     bool  mapView = false;                 // 2D overhead vertex editor (Enter)
     float mvScale = 24.0f, mvOx = 0, mvOy = 0;
@@ -406,6 +407,7 @@ int main(int argc, char** argv){
 
         Uint32 nowt = SDL_GetTicks();
         float dt = (nowt - prev) / 1000.0f;
+        if(dt > 0.0f) fps += (1.0f/dt - fps) * 0.1f;   // EMA from the true frame time
         if(dt > 0.05f) dt = 0.05f;
         prev = nowt;
 
@@ -538,6 +540,15 @@ int main(int argc, char** argv){
             renderer.drawMinimap(map, player.camera, editMode ? aim : SurfaceRef{},
                                  map.playerStart, map.startAngle);
             renderer.crosshair(editMode ? 0xFF40ff40 : 0xFFe0e0e0);
+        }
+
+        // ---- HUD (over everything) ----
+        {
+            char hud[32];
+            int len = snprintf(hud, sizeof hud, "FPS %d", (int)(fps + 0.5f));
+            int scale = 2, tw = len * 6 * scale, tx = W - tw - 6, ty = 6;
+            renderer.drawText(tx + 1, ty + 1, hud, 0xFF000000, scale);   // shadow
+            renderer.drawText(tx,     ty,     hud, 0xFFf0e070, scale);   // text
         }
 
         SDL_UpdateTexture(tex, nullptr, renderer.pixels(), W * sizeof(uint32_t));

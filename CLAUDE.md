@@ -79,6 +79,12 @@ Floors/ceilings are drawn per-pixel by inverse projection (`planeSpan`, "floor c
 Sky is a static screen-locked backdrop (`skySpan`, `ceilingIsSky` per sector). Sprites are
 billboards sorted far-to-near and z-tested (`drawSprites`).
 
+**HUD text** is a built-in 5x7 bitmap font (`Renderer::drawText`, font table in
+`Renderer.cpp`) drawn straight into the framebuffer — no SDL_ttf. It uppercases input
+and covers digits, A-Z and a little punctuation; the main loop uses it for an FPS
+counter (top-right, smoothed EMA of the real frame time) and it's the hook for any
+future on-screen message.
+
 **Surface picking (EDITOR only).** As it draws, the renderer stamps a packed
 `kind|wall|sector` id into `pickBuffer_` (and `drawSprites` stamps `kind=Sprite|index`
 for visible sprite pixels); `pickAt(x,y)` decodes the pixel under the crosshair into

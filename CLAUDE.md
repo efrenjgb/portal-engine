@@ -81,9 +81,11 @@ billboards sorted far-to-near and z-tested (`drawSprites`).
 
 **HUD text** is a built-in 5x7 bitmap font (`Renderer::drawText`, font table in
 `Renderer.cpp`) drawn straight into the framebuffer — no SDL_ttf. It uppercases input
-and covers digits, A-Z and a little punctuation; the main loop uses it for an FPS
-counter (top-right, smoothed EMA of the real frame time) and it's the hook for any
-future on-screen message.
+and covers digits, A-Z and a little punctuation; the top byte of the colour is an
+alpha that alpha-blends (so text can fade). The main loop uses it for an FPS counter
+(top-right, smoothed EMA of the real frame time) and a small **toast queue**
+(`showMessage`, bottom-left, fades out) that editor actions push to — save, set start,
+draw/delete, grid toggle, etc.
 
 **Surface picking (EDITOR only).** As it draws, the renderer stamps a packed
 `kind|wall|sector` id into `pickBuffer_` (and `drawSprites` stamps `kind=Sprite|index`

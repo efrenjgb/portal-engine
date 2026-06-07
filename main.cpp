@@ -266,6 +266,11 @@ int main(int argc, char** argv){
         mvOx = W*0.5f - (minx+maxx)*0.5f*mvScale;
         mvOy = H*0.5f + (miny+maxy)*0.5f*mvScale;
     };
+    // transient on-screen messages (newest at the bottom, fade out near the end)
+    struct Toast { std::string text; float ttl; };
+    std::vector<Toast> toasts;
+    auto showMessage = [&](std::string s){ toasts.push_back({ std::move(s), 3.0f });
+                                           if(toasts.size() > 5) toasts.erase(toasts.begin()); };
 #endif
 
     while(running){
@@ -297,8 +302,8 @@ int main(int argc, char** argv){
                         float dx = sx - mouseX, dy = sy - mouseY;
                         if(dx*dx + dy*dy < 100.0f){
                             pushUndo();
-                            if(addSector(map, drawPts)) printf("created sector %d\n", (int)map.sectors.size()-1);
-                            else { undo.pop_back(); printf("invalid sector (need 3+ non-collinear points)\n"); }
+                            if(addSector(map, drawPts)){ printf("created sector %d\n", (int)map.sectors.size()-1); showMessage("created sector " + std::to_string((int)map.sectors.size()-1)); }
+                            else { undo.pop_back(); printf("invalid sector (need 3+ non-collinear points)\n"); showMessage("invalid sector"); }
                             drawPts.clear(); drawing = false; closed = true;
                         }
                     }
@@ -339,17 +344,19 @@ int main(int argc, char** argv){
                     SDL_SetRelativeMouseMode((!mapView && mouseGrabbed) ? SDL_TRUE : SDL_FALSE);
                 }
                 if(mapView){                       // ---- 2D map-editor keys ----
-                    if(k == SDLK_g){ gridSnap = !gridSnap; printf("grid snap %s\n", gridSnap ? "on" : "off"); }
+                    if(k == SDLK_g){ gridSnap = !gridSnap; printf("grid snap %s\n", gridSnap ? "on" : "off");
+                                     showMessage(gridSnap ? "grid snap on" : "grid snap off"); }
                     if(k == SDLK_b){                // start / finish drawing a new sector
                         if(drawing){
                             if(drawPts.size() >= 3){
                                 pushUndo();
-                                if(addSector(map, drawPts)) printf("created sector %d\n", (int)map.sectors.size()-1);
-                                else { undo.pop_back(); printf("invalid sector (need 3+ non-collinear points)\n"); }
-                            } else printf("draw cancelled\n");
+                                if(addSector(map, drawPts)){ printf("created sector %d\n", (int)map.sectors.size()-1); showMessage("created sector " + std::to_string((int)map.sectors.size()-1)); }
+                                else { undo.pop_back(); printf("invalid sector (need 3+ non-collinear points)\n"); showMessage("invalid sector"); }
+                            } else { printf("draw cancelled\n"); showMessage("draw cancelled"); }
                             drawing = false; drawPts.clear();
                         } else { drawing = true; drawPts.clear();
-                                 printf("draw sector: click points; click the first point or press B to close, right-click cancels\n"); }
+                                 printf("draw sector: click points; click the first point or press B to close, right-click cancels\n");
+                                 showMessage("draw sector: click points, B to close"); }
                     }
                     if(drawing){
                         if(k == SDLK_BACKSPACE && !drawPts.empty()) drawPts.pop_back();
@@ -357,7 +364,7 @@ int main(int argc, char** argv){
                         if(k == SDLK_z && !undo.empty()){
                             map.sectors = undo.back().sectors; map.sprites = undo.back().sprites;
                             undo.pop_back(); dragVerts.clear(); dragSprite = -1;
-                            printf("undo (%zu left)\n", undo.size());
+                            printf("undo (%zu left)\n", undo.size()); showMessage("undo");
                         }
                         if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x){
                             VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
@@ -366,7 +373,8 @@ int main(int argc, char** argv){
                                 if(!deleteVertex(map, map.sectors[v.sector].vertices[v.index])){
                                     undo.pop_back();          // nothing removed: drop the snapshot
                                     printf("can't delete: a sector would drop below 3 vertices\n");
-                                } else { rebuildPortals(map); dragVerts.clear(); printf("deleted vertex\n"); }
+                                    showMessage("can't delete (min 3 vertices)");
+                                } else { rebuildPortals(map); dragVerts.clear(); printf("deleted vertex\n"); showMessage("deleted vertex"); }
                             }
                         }
                     }
@@ -382,7 +390,8 @@ int main(int argc, char** argv){
                         else if(a.kind == SurfaceRef::Ceiling) idp = &sc.ceilingTextureId;
                     }
                     if(idp){ *idp = (*idp + 1 >= n) ? -1 : *idp + 1;
-                             printf("texture id = %d %s\n", *idp, *idp < 0 ? "(procedural)" : ""); }
+                             printf("texture id = %d %s\n", *idp, *idp < 0 ? "(procedural)" : "");
+                             showMessage(*idp < 0 ? "texture: procedural" : "texture id " + std::to_string(*idp)); }
                 }
                 if(k == SDLK_o){   // toggle sky backdrop on the aimed ceiling
                     SurfaceRef a = renderer.pickAt(W/2, H/2);
@@ -390,13 +399,16 @@ int main(int argc, char** argv){
                         bool& sky = map.sectors[a.sector].ceilingIsSky;
                         sky = !sky;
                         printf("sector %d ceiling sky = %s\n", a.sector, sky ? "on" : "off");
+                        showMessage(sky ? "ceiling sky on" : "ceiling sky off");
                     }
                 }
-                if(k == SDLK_k)   saveMap(map, savePath);
+                if(k == SDLK_k){ bool ok = saveMap(map, savePath);
+                                 showMessage(ok ? "saved " + savePath : "save failed"); }
                 if(k == SDLK_p){
                     map.playerStart = { player.camera.x, player.camera.y };
                     map.startSector = player.sector;
                     map.startAngle  = player.camera.angle;
+                    showMessage("player start set");
                     printf("player start set: %.2f %.2f sector %d facing %.0f deg\n",
                            map.playerStart.x, map.playerStart.y, map.startSector,
                            map.startAngle * 180.0f / PI_F);
@@ -409,6 +421,11 @@ int main(int argc, char** argv){
         float dt = (nowt - prev) / 1000.0f;
         if(dt > 0.0f) fps += (1.0f/dt - fps) * 0.1f;   // EMA from the true frame time
         if(dt > 0.05f) dt = 0.05f;
+#if EDITOR
+        for(auto& t : toasts) t.ttl -= dt;             // expire transient messages
+        toasts.erase(std::remove_if(toasts.begin(), toasts.end(),
+                     [](const Toast& t){ return t.ttl <= 0.0f; }), toasts.end());
+#endif
         prev = nowt;
 
         const Uint8* ks = SDL_GetKeyboardState(nullptr);
@@ -550,6 +567,15 @@ int main(int argc, char** argv){
             renderer.drawText(tx + 1, ty + 1, hud, 0xFF000000, scale);   // shadow
             renderer.drawText(tx,     ty,     hud, 0xFFf0e070, scale);   // text
         }
+#if EDITOR
+        for(int i = 0; i < (int)toasts.size(); ++i){       // transient messages, newest at bottom
+            float a = std::min(1.0f, toasts[i].ttl / 0.75f);            // fade out in the last 0.75s
+            uint8_t alpha = (uint8_t)(a * 255);
+            int scale = 2, y = H - 14 - ((int)toasts.size()-1 - i) * (7*scale + 4), x = 8;
+            renderer.drawText(x + 1, y + 1, toasts[i].text.c_str(), (uint32_t)alpha << 24, scale);     // shadow
+            renderer.drawText(x,     y,     toasts[i].text.c_str(), ((uint32_t)alpha << 24) | 0xe0f0ff, scale);
+        }
+#endif
 
         SDL_UpdateTexture(tex, nullptr, renderer.pixels(), W * sizeof(uint32_t));
         SDL_RenderClear(ren);

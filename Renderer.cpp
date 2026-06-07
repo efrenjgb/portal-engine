@@ -434,7 +434,16 @@ static const uint8_t FONT[][7] = {
     {0b11001,0b11010,0b00010,0b00100,0b01000,0b01011,0b10011},   // %
 };
 
+// Alpha-blend src over dst by a (0..255); a==255 is plain copy.
+static inline uint32_t blendRGB(uint32_t dst, uint32_t src, uint8_t a){
+    uint32_t r = ((src>>16 & 255)*a + (dst>>16 & 255)*(255-a)) / 255;
+    uint32_t g = ((src>>8  & 255)*a + (dst>>8  & 255)*(255-a)) / 255;
+    uint32_t b = ((src     & 255)*a + (dst     & 255)*(255-a)) / 255;
+    return 0xFF000000u | (r<<16) | (g<<8) | b;
+}
+
 int Renderer::drawText(int x, int y, const char* text, uint32_t color, int scale){
+    uint8_t alpha = (uint8_t)(color >> 24);                 // top byte = opacity
     int cx = x;
     for(const char* p = text; *p; ++p){
         char c = *p;
@@ -446,8 +455,12 @@ int Renderer::drawText(int x, int y, const char* text, uint32_t color, int scale
             for(int col = 0; col < 5; ++col)
                 if(g[r] & (1 << (4 - col)))
                     for(int sy = 0; sy < scale; ++sy)
-                        for(int sx = 0; sx < scale; ++sx)
-                            putPixel(cx + col*scale + sx, y + r*scale + sy, color);
+                        for(int sx = 0; sx < scale; ++sx){
+                            int px = cx + col*scale + sx, py = y + r*scale + sy;
+                            if(px < 0 || px >= W || py < 0 || py >= H) continue;
+                            uint32_t& d = frameBuffer_[(size_t)py*W + px];
+                            d = (alpha == 255) ? (0xFF000000u | color) : blendRGB(d, color, alpha);
+                        }
         cx += 6 * scale;                                   // 5px glyph + 1px gap
     }
     return cx - x;

@@ -4,7 +4,7 @@
 #include <cstdlib>
 
 // ---- procedural textures (file-local) --------------------------------------
-static uint32_t texSample(uint32_t base, float u, float v){     // brick walls
+static uint32_t sampleBrick(uint32_t base, float u, float v){     // brick walls
     const float bw = 1.0f, bh = 0.5f;
     float vv  = v / bh;
     int   row = (int)std::floor(vv);
@@ -18,7 +18,7 @@ static uint32_t texSample(uint32_t base, float u, float v){     // brick walls
     return shade(base, var);
 }
 
-static uint32_t planeTex(uint32_t base, float wx, float wy){   // tiled floors
+static uint32_t sampleTile(uint32_t base, float wx, float wy){   // tiled floors
     const float tile = 1.0f;
     float fu = wx/tile - std::floor(wx/tile);
     float fv = wy/tile - std::floor(wy/tile);
@@ -27,7 +27,7 @@ static uint32_t planeTex(uint32_t base, float wx, float wy){   // tiled floors
     return shade(base, checker ? 1.0f : 0.80f);
 }
 
-static uint32_t spriteTex(uint32_t base, float u, float v){    // barrel/drum
+static uint32_t sampleSprite(uint32_t base, float u, float v){    // barrel/drum
     float cu = (u - 0.5f) * 2.0f;
     const float r = 0.82f;
     if(std::fabs(cu) > r || v < 0.0f || v > 1.0f) return 0;     // transparent
@@ -40,27 +40,27 @@ static uint32_t spriteTex(uint32_t base, float u, float v){    // barrel/drum
 
 // Pack a surface identity into one word: kind(4) | wall(12) | sector(16).
 // 0 == nothing (SurfaceRef::None), which is what the pick buffer clears to.
-static inline uint32_t packSurf(int sector, int kind, int wall){
+static inline uint32_t packSurface(int sector, int kind, int wall){
     return ((uint32_t)kind << 28) | (((uint32_t)wall & 0xFFF) << 16) | ((uint32_t)sector & 0xFFFF);
 }
 
 // ---- Renderer --------------------------------------------------------------
 Renderer::Renderer()
-    : F_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
-      fb_(W*H), zbuf_(W*H),
+    : focalLength_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
+      frameBuffer_(W*H), depthBuffer_(W*H),
 #if EDITOR
-      pickbuf_(W*H),
+      pickBuffer_(W*H),
 #endif
-      ytop_(W), ybot_(W) {}
+      columnTop_(W), columnBottom_(W) {}
 
-void Renderer::clear(uint32_t bg){ std::fill(fb_.begin(), fb_.end(), bg); }
+void Renderer::clear(uint32_t bg){ std::fill(frameBuffer_.begin(), frameBuffer_.end(), bg); }
 
-void Renderer::putpx(int x, int y, uint32_t c){
-    if(x >= 0 && x < W && y >= 0 && y < H) fb_[y*W + x] = c;
+void Renderer::putPixel(int x, int y, uint32_t c){
+    if(x >= 0 && x < W && y >= 0 && y < H) frameBuffer_[y*W + x] = c;
 }
-void Renderer::line2d(int x0, int y0, int x1, int y1, uint32_t c){
+void Renderer::drawLine(int x0, int y0, int x1, int y1, uint32_t c){
     int dx = std::abs(x1-x0), sx = x0<x1?1:-1, dy = -std::abs(y1-y0), sy = y0<y1?1:-1, e = dx+dy;
-    for(;;){ putpx(x0,y0,c); if(x0==x1 && y0==y1) break;
+    for(;;){ putPixel(x0,y0,c); if(x0==x1 && y0==y1) break;
         int e2 = 2*e; if(e2 >= dy){ e += dy; x0 += sx; } if(e2 <= dx){ e += dx; y0 += sy; } }
 }
 
@@ -83,14 +83,14 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
     const Texture* img = imageFor(texId);
     for(int y = y0; y <= y1; ++y){
         int idx = y*W + x;
-        if(depth >= zbuf_[idx]) continue;             // z-test: keep the nearer surface
+        if(depth >= depthBuffer_[idx]) continue;             // z-test: keep the nearer surface
         float fy = (y - yTopf) / span;
         float v  = (vTop + (vBot - vTop) * fy) / tx.vScale + tx.vOffset;
-        uint32_t c = img ? img->at(su, v) : texSample(base, su, v);
-        fb_[idx]      = shade(c, fade);
-        zbuf_[idx]    = depth;
+        uint32_t c = img ? img->at(su, v) : sampleBrick(base, su, v);
+        frameBuffer_[idx]      = shade(c, fade);
+        depthBuffer_[idx]    = depth;
 #if EDITOR
-        pickbuf_[idx] = surf;
+        pickBuffer_[idx] = surf;
 #endif
     }
 }
@@ -101,20 +101,20 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
     float h = pz - P.z;
     const Texture* img = imageFor(texId);
     for(int y = y0; y <= y1; ++y){
-        float denom = (H * 0.5f - y) - P.pitch * F_;
-        float tz = h * F_ / denom;
+        float denom = (H * 0.5f - y) - P.pitch * focalLength_;
+        float tz = h * focalLength_ / denom;
         if(tz <= 0.0001f) continue;
         int idx = y*W + x;
-        if(tz >= zbuf_[idx]) continue;                // z-test: keep the nearer surface
-        float txc = (x - W * 0.5f) * tz / F_;
+        if(tz >= depthBuffer_[idx]) continue;                // z-test: keep the nearer surface
+        float txc = (x - W * 0.5f) * tz / focalLength_;
         float wx = P.x + P.yawCos * tz + P.yawSin * txc;
         float wy = P.y + P.yawSin * tz - P.yawCos * txc;
         float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
-        uint32_t c = img ? img->at(sx, sy) : planeTex(base, sx, sy);
-        fb_[idx]      = shade(c, distFade(tz));
-        zbuf_[idx]    = tz;
+        uint32_t c = img ? img->at(sx, sy) : sampleTile(base, sx, sy);
+        frameBuffer_[idx]      = shade(c, distFade(tz));
+        depthBuffer_[idx]    = tz;
 #if EDITOR
-        pickbuf_[idx] = surf;
+        pickBuffer_[idx] = surf;
 #endif
     }
 }
@@ -129,22 +129,22 @@ void Renderer::skySpan(int x, int y0, int y1, uint32_t base, int texId,
     float su = (float)x / (float)W;                     // one copy across the screen
     for(int y = y0; y <= y1; ++y){
         int idx = y*W + x;
-        if(zbuf_[idx] < 1e9f) continue;                 // a nearer surface already won
+        if(depthBuffer_[idx] < 1e9f) continue;                 // a nearer surface already won
         float sv = (float)y / (float)H;
-        uint32_t c = img ? img->at(su, sv) : planeTex(base, su * 8.0f, sv * 4.0f);
-        fb_[idx]      = c;                               // no distance fade: it's "far"
-        zbuf_[idx]    = 1e9f;                            // behind everything
+        uint32_t c = img ? img->at(su, sv) : sampleTile(base, su * 8.0f, sv * 4.0f);
+        frameBuffer_[idx]      = c;                               // no distance fade: it's "far"
+        depthBuffer_[idx]    = 1e9f;                            // behind everything
 #if EDITOR
-        pickbuf_[idx] = surf;                            // still picks as the ceiling
+        pickBuffer_[idx] = surf;                            // still picks as the ceiling
 #endif
     }
 }
 
 void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
-    for(int x = 0; x < W; ++x){ ytop_[x] = 0; ybot_[x] = H-1; }
-    std::fill(zbuf_.begin(), zbuf_.end(), 1e9f);
+    for(int x = 0; x < W; ++x){ columnTop_[x] = 0; columnBottom_[x] = H-1; }
+    std::fill(depthBuffer_.begin(), depthBuffer_.end(), 1e9f);
 #if EDITOR
-    std::fill(pickbuf_.begin(), pickbuf_.end(), 0u);
+    std::fill(pickBuffer_.begin(), pickBuffer_.end(), 0u);
 #endif
     // A sector may be visible through more than one portal opening (e.g. once a
     // doorway portal is split into two sub-portals in the editor), so we draw it
@@ -155,7 +155,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
     std::vector<char> visits(map.sectors.size(), 0);
     std::vector<int>  et(W), eb(W);   // per-sector-entry snapshot of the window
 
-    struct Item { int sect, sx1, sx2; };
+    struct Item { int sector, sx1, sx2; };
     Item queue[256];
     int head = 0, tail = 0, count = 0;
     queue[head] = { playerSector, 0, W-1 };
@@ -164,16 +164,16 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
     while(count > 0){
         Item now = queue[tail];
         tail = (tail+1) & 255; count--;
-        if(visits[now.sect] >= MAX_VISITS) continue;
-        visits[now.sect]++;
-        const Sector& sec = map.sectors[now.sect];
+        if(visits[now.sector] >= MAX_VISITS) continue;
+        visits[now.sector]++;
+        const Sector& sec = map.sectors[now.sector];
         int n = (int)sec.vertices.size();
 
         // Freeze the incoming window: this sector's own walls clamp to et/eb, so
         // a portal earlier in the list can't chop a solid wall that comes later
-        // (concave sectors). Portals still shrink the live ytop_/ybot_, which the
+        // (concave sectors). Portals still shrink the live columnTop_/columnBottom_, which the
         // sectors we queue inherit; per-pixel depth sorts near vs far in-sector.
-        for(int x = now.sx1; x <= now.sx2; ++x){ et[x] = ytop_[x]; eb[x] = ybot_[x]; }
+        for(int x = now.sx1; x <= now.sx2; ++x){ et[x] = columnTop_[x]; eb[x] = columnBottom_[x]; }
 
         for(int s = 0; s < n; ++s){
             Vec2 a = sec.vertices[s], b = sec.vertices[(s+1) % n];
@@ -198,7 +198,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             // correct side, so there's no need to keep the camera away from
             // portals. NEARZ must stay well above zero so 1/z and x stay sane.
             const float NEARZ = NEAR_PLANE;
-            const float slope = (W * 0.5f) / F_;             // tan(FOV/2): screen-edge tx/tz
+            const float slope = (W * 0.5f) / focalLength_;             // tan(FOV/2): screen-edge tx/tz
 
             // Near plane. If both ends are nearer than it but still in FRONT of the
             // camera, you're standing right on the wall — clamp both. But if one
@@ -227,7 +227,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             if(!clipSide(slope*tz1 - tx1, slope*tz2 - tx2)) continue;   // right edge
 
             // project: screen_x = W/2 + tx*F/tz (not mirrored, now within [0,W])
-            float xs1 = F_ / tz1, xs2 = F_ / tz2;
+            float xs1 = focalLength_ / tz1, xs2 = focalLength_ / tz2;
             float fx1 = W * 0.5f + tx1 * xs1;
             float fx2 = W * 0.5f + tx2 * xs2;
             if(fx1 > fx2){                                    // front faces come out R-to-L
@@ -267,12 +267,12 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                 int cya = clampi((int)yaf, wt, wb);
                 int cyb = clampi((int)ybf, wt, wb);
 
-                uint32_t ceilSurf = packSurf(now.sect, SurfaceRef::Ceiling, 0);
+                uint32_t ceilSurf = packSurface(now.sector, SurfaceRef::Ceiling, 0);
                 if(sec.ceilingIsSky) skySpan(x, wt, cya-1, sec.ceilingColor, sec.ceilingTextureId, ceilSurf);
                 else            planeSpan(P, x, wt, cya-1, sec.ceiling, sec.ceilingColor, ceilSurf, sec.ceilingTexture, sec.ceilingTextureId);
-                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorColor, packSurf(now.sect, SurfaceRef::Floor, 0), sec.floorTexture, sec.floorTextureId);
+                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorColor, packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture, sec.floorTextureId);
 
-                uint32_t wsurf = packSurf(now.sect, SurfaceRef::Wall, s);
+                uint32_t wsurf = packSurface(now.sector, SurfaceRef::Wall, s);
                 const TextureTransform& wtx = sec.wallTextures[s];
                 int wid = sec.wallTextureIds[s];
                 if(nb < 0){
@@ -283,8 +283,8 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
                     wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling,  wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid);
                     wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid);
                     // shrink the LIVE window (monotonically) for queued children
-                    ytop_[x] = std::max(ytop_[x], clampi(std::max((int)yaf, (int)naf), wt, H-1));
-                    ybot_[x] = std::min(ybot_[x], clampi(std::min((int)ybf, (int)nbf), 0,  wb));
+                    columnTop_[x] = std::max(columnTop_[x], clampi(std::max((int)yaf, (int)naf), wt, H-1));
+                    columnBottom_[x] = std::min(columnBottom_[x], clampi(std::min((int)ybf, (int)nbf), 0,  wb));
                 }
             }
 
@@ -319,7 +319,7 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
         if(tz < 0.2f) continue;
         float tx = rx*P.yawSin - ry*P.yawCos;
 
-        float sc  = F_ / tz;
+        float sc  = focalLength_ / tz;
         float cx  = W*0.5f + tx * sc;
         float yfeet = H*0.5f - ((sp.z             - P.z) + tz*P.pitch) * sc;
         float ytopf = H*0.5f - ((sp.z + sp.height - P.z) + tz*P.pitch) * sc;
@@ -333,13 +333,13 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
         for(int x = std::max(x0,0); x <= std::min(x1,W-1); ++x){
             float uu = (x - x0) / (float)(x1 - x0);
             for(int y = std::max(yt,0); y <= std::min(yb,H-1); ++y){
-                if(tz >= zbuf_[y*W + x]) continue;
+                if(tz >= depthBuffer_[y*W + x]) continue;
                 float vv = (y - yt) / (float)(yb - yt);
-                uint32_t c = spriteTex(sp.color, uu, vv);
+                uint32_t c = sampleSprite(sp.color, uu, vv);
                 if(c){
-                    fb_[y*W + x] = shade(c, fade);
+                    frameBuffer_[y*W + x] = shade(c, fade);
 #if EDITOR
-                    pickbuf_[y*W + x] = ((uint32_t)SurfaceRef::Sprite << 28) | ((uint32_t)si & 0xFFFF);
+                    pickBuffer_[y*W + x] = ((uint32_t)SurfaceRef::Sprite << 28) | ((uint32_t)si & 0xFFFF);
 #endif
                 }
             }
@@ -362,26 +362,26 @@ void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim,
             if(i == aim.sector) c = 0xFFff30ff;                              // aimed sector
             if(aim.kind == SurfaceRef::Wall && i == aim.sector && w == aim.wall)
                 c = 0xFFffe020;                                             // aimed wall = yellow
-            line2d(MX(a.x), MY(a.y), MX(b.x), MY(b.y), c);
+            drawLine(MX(a.x), MY(a.y), MX(b.x), MY(b.y), c);
         }
     }
     for(const Sprite& s : map.sprites){
         int sx = MX(s.position.x), sy = MY(s.position.y);
-        for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(sx+dx, sy+dy, s.color);
+        for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putPixel(sx+dx, sy+dy, s.color);
     }
     {   // stored player start = cyan
         int sx = MX(start.x), sy = MY(start.y);
-        line2d(sx, sy, MX(start.x + std::cos(startAngle)*1.2f),
+        drawLine(sx, sy, MX(start.x + std::cos(startAngle)*1.2f),
                        MY(start.y + std::sin(startAngle)*1.2f), 0xFF20e0ff);
-        putpx(sx, sy, 0xFF20e0ff);
+        putPixel(sx, sy, 0xFF20e0ff);
     }
     int px = MX(P.x), py = MY(P.y);
-    line2d(px, py, MX(P.x + P.yawCos*1.6f), MY(P.y + P.yawSin*1.6f), 0xFFffd040);
-    for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(px+dx, py+dy, 0xFFff4040);
+    drawLine(px, py, MX(P.x + P.yawCos*1.6f), MY(P.y + P.yawSin*1.6f), 0xFFffd040);
+    for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putPixel(px+dx, py+dy, 0xFFff4040);
 }
 
 void Renderer::crosshair(uint32_t col){
-    for(int i = -5; i <= 5; ++i){ putpx(W/2+i, H/2, col); putpx(W/2, H/2+i, col); }
+    for(int i = -5; i <= 5; ++i){ putPixel(W/2+i, H/2, col); putPixel(W/2, H/2+i, col); }
 }
 
 void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
@@ -394,8 +394,8 @@ void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
     if(sc >= 4.0f){
         int gx0 = (int)std::floor((0 - ox)/sc),     gx1 = (int)std::ceil((W - ox)/sc);
         int gy0 = (int)std::floor((oy - (H-1))/sc), gy1 = (int)std::ceil((oy - 0)/sc);
-        if(gx1 - gx0 < 400) for(int gx = gx0; gx <= gx1; ++gx) line2d(SX((float)gx), 0, SX((float)gx), H-1, 0xFF15181f);
-        if(gy1 - gy0 < 400) for(int gy = gy0; gy <= gy1; ++gy) line2d(0, SY((float)gy), W-1, SY((float)gy), 0xFF15181f);
+        if(gx1 - gx0 < 400) for(int gx = gx0; gx <= gx1; ++gx) drawLine(SX((float)gx), 0, SX((float)gx), H-1, 0xFF15181f);
+        if(gy1 - gy0 < 400) for(int gy = gy0; gy <= gy1; ++gy) drawLine(0, SY((float)gy), W-1, SY((float)gy), 0xFF15181f);
     }
 
     // walls (portal = green, solid = grey; aimed wall = yellow)
@@ -406,7 +406,7 @@ void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
             Vec2 a = S.vertices[w], b = S.vertices[(w+1)%n];
             uint32_t c = (S.neighbors[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
             if(s == hwSec && w == hwWall) c = 0xFFffe020;
-            line2d(SX(a.x), SY(a.y), SX(b.x), SY(b.y), c);
+            drawLine(SX(a.x), SY(a.y), SX(b.x), SY(b.y), c);
         }
     }
     // vertices (hovered one is a bigger yellow box)
@@ -417,13 +417,13 @@ void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
             bool hot = (s == hovSec && i == hovVert);
             uint32_t c = hot ? 0xFFffe020 : 0xFFdfe6f0;
             int r = hot ? 3 : 2;
-            for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putpx(vx+dx, vy+dy, c);
+            for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putPixel(vx+dx, vy+dy, c);
         }
     }
     // player marker + facing
     int px = SX(pp.x), py = SY(pp.y);
-    line2d(px, py, SX(pp.x + std::cos(pa)*1.6f), SY(pp.y + std::sin(pa)*1.6f), 0xFFffd040);
-    for(int dy=-2; dy<=2; ++dy) for(int dx=-2; dx<=2; ++dx) putpx(px+dx, py+dy, 0xFFff4040);
+    drawLine(px, py, SX(pp.x + std::cos(pa)*1.6f), SY(pp.y + std::sin(pa)*1.6f), 0xFFffd040);
+    for(int dy=-2; dy<=2; ++dy) for(int dx=-2; dx<=2; ++dx) putPixel(px+dx, py+dy, 0xFFff4040);
 }
 
 void Renderer::drawPendingSector(const std::vector<Vec2>& pts, float sc, float ox, float oy,
@@ -434,16 +434,16 @@ void Renderer::drawPendingSector(const std::vector<Vec2>& pts, float sc, float o
     const uint32_t edge = 0xFFffd24a, band = 0xFF8a7320;
 
     for(size_t i = 0; i + 1 < pts.size(); ++i)               // committed edges
-        line2d(SX(pts[i].x), SY(pts[i].y), SX(pts[i+1].x), SY(pts[i+1].y), edge);
-    line2d(SX(pts.back().x), SY(pts.back().y), mx, my, band); // rubber-band to cursor
+        drawLine(SX(pts[i].x), SY(pts[i].y), SX(pts[i+1].x), SY(pts[i+1].y), edge);
+    drawLine(SX(pts.back().x), SY(pts.back().y), mx, my, band); // rubber-band to cursor
     if(pts.size() >= 2)                                       // hint of the closing edge
-        line2d(mx, my, SX(pts[0].x), SY(pts[0].y), band);
+        drawLine(mx, my, SX(pts[0].x), SY(pts[0].y), band);
 
     for(size_t i = 0; i < pts.size(); ++i){                  // placed points
         int vx = SX(pts[i].x), vy = SY(pts[i].y);
         int r = (i == 0) ? 3 : 2;                            // first point bigger (click to close)
         uint32_t c = (i == 0) ? 0xFFffffff : edge;
-        for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putpx(vx+dx, vy+dy, c);
+        for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putPixel(vx+dx, vy+dy, c);
     }
 }
 
@@ -451,7 +451,7 @@ void Renderer::drawPendingSector(const std::vector<Vec2>& pts, float sc, float o
 SurfaceRef Renderer::pickAt(int x, int y) const {
     SurfaceRef r;
     if(x < 0 || x >= W || y < 0 || y >= H) return r;
-    uint32_t s = pickbuf_[(size_t)y*W + x];
+    uint32_t s = pickBuffer_[(size_t)y*W + x];
     int kind = (int)((s >> 28) & 0xF);
     if(kind == 0) return r;                       // background / nothing
     r.kind = (SurfaceRef::Kind)kind;

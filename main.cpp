@@ -48,6 +48,17 @@ static VHit pickWall(const Map& m, float sc, float ox, float oy, int mx, int my,
     }
     return h;
 }
+// nearest sprite to a screen point (within ~9 px); -1 if none
+static int pickSprite(const Map& m, float sc, float ox, float oy, int mx, int my){
+    int best = -1; float bestD = 9.0f*9.0f;
+    for(int i = 0; i < (int)m.sprites.size(); ++i){
+        float dx = (ox + m.sprites[i].position.x*sc) - mx;
+        float dy = (oy - m.sprites[i].position.y*sc) - my;
+        float d = dx*dx + dy*dy;
+        if(d < bestD){ bestD = d; best = i; }
+    }
+    return best;
+}
 // every (sector,index) vertex coincident with p — so a drag keeps portals joined
 static void collectCoincident(const Map& m, Vec2 p, std::vector<std::pair<int,int>>& out){
     for(int s = 0; s < (int)m.sectors.size(); ++s)
@@ -215,8 +226,8 @@ int main(int argc, char** argv){
              "   N             :   cycle image texture on aimed surface\n"
              "   O             :   toggle sky backdrop on aimed ceiling\n"
              "   Enter         : 2D map view  (G grid snap | Z undo | Del/X delete vertex)\n"
-             "                     drag a vertex to move it; click a wall to split in a vertex;\n"
-             "                     make two sectors' walls coincide to bond a portal;\n"
+             "                     drag a vertex to move it; drag a sprite (diamond) to reposition it;\n"
+             "                     click a wall to split in a vertex; coincide two walls to bond a portal;\n"
              "                     B draws a new sector (click points, click the first to close)\n"
              "   P             : set player start to current position\n"
              "   K             : save edited map (to <mapfile>.save)\n");
@@ -230,10 +241,12 @@ int main(int argc, char** argv){
     float mvScale = 24.0f, mvOx = 0, mvOy = 0;
     int   mouseX = W/2, mouseY = H/2;
     std::vector<std::pair<int,int>> dragVerts;
-    bool  drawing = false;                   // drawing a new sector (B)
-    std::vector<Vec2> drawPts;               // its points so far
-    std::vector<std::vector<Sector>> undo;  // geometry snapshots for undo (Z)
-    auto  pushUndo = [&](){ undo.push_back(map.sectors);
+    int   dragSprite = -1;                    // sprite being dragged in 2D, or -1
+    bool  drawing = false;                    // drawing a new sector (B)
+    std::vector<Vec2> drawPts;                // its points so far
+    struct Snapshot { std::vector<Sector> sectors; std::vector<Sprite> sprites; };
+    std::vector<Snapshot> undo;               // geometry+sprite snapshots for undo (Z)
+    auto  pushUndo = [&](){ undo.push_back({ map.sectors, map.sprites });
                             if(undo.size() > 64) undo.erase(undo.begin()); };
     bool  gridSnap = true;                  // snap edits to the unit grid (G)
     float gridSize = 1.0f;
@@ -294,10 +307,12 @@ int main(int argc, char** argv){
                     }
                 } else {
                     VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-                    dragVerts.clear();
+                    dragVerts.clear(); dragSprite = -1;
                     if(v.index >= 0){                                   // grab a vertex (+coincident)
                         pushUndo();
                         collectCoincident(map, map.sectors[v.sector].vertices[v.index], dragVerts);
+                    } else if((dragSprite = pickSprite(map, mvScale, mvOx, mvOy, mouseX, mouseY)) >= 0){
+                        pushUndo();                                    // grab a sprite to reposition
                     } else {                                          // else split the wall here
                         Vec2 proj; VHit w = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
                         if(w.index >= 0){ pushUndo(); proj = snap(proj); splitWall(map, w.sector, w.index, proj); rebuildPortals(map); collectCoincident(map, proj, dragVerts); }
@@ -305,7 +320,7 @@ int main(int argc, char** argv){
                 }
             }
             else if(e.type == SDL_MOUSEBUTTONUP && mapView && e.button.button == SDL_BUTTON_LEFT){
-                dragVerts.clear();
+                dragVerts.clear(); dragSprite = -1;
             }
 #endif
             else if(e.type == SDL_KEYDOWN){
@@ -338,7 +353,8 @@ int main(int argc, char** argv){
                         if(k == SDLK_BACKSPACE && !drawPts.empty()) drawPts.pop_back();
                     } else {
                         if(k == SDLK_z && !undo.empty()){
-                            map.sectors = undo.back(); undo.pop_back(); dragVerts.clear();
+                            map.sectors = undo.back().sectors; map.sprites = undo.back().sprites;
+                            undo.pop_back(); dragVerts.clear(); dragSprite = -1;
                             printf("undo (%zu left)\n", undo.size());
                         }
                         if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x){
@@ -406,6 +422,8 @@ int main(int argc, char** argv){
                 for(auto& pr : dragVerts) map.sectors[pr.first].vertices[pr.second] = wp;
                 rebuildPortals(map);          // bond/break portals as walls meet or part
             }
+            if(dragSprite >= 0 && dragSprite < (int)map.sprites.size())  // drag a sprite (x,y)
+                map.sprites[dragSprite].position = snap({ s2wx(mouseX), s2wy(mouseY) });
         } else
 #endif
         {
@@ -501,13 +519,15 @@ int main(int argc, char** argv){
         renderer.clear(0xFF0a0c12);
 #if EDITOR
         if(mapView){
-            VHit hv, hw; Vec2 proj;
+            VHit hv, hw; Vec2 proj; int hovSprite = -1;
             if(!drawing){                          // no hover highlight while drawing
                 hv = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
                 if(hv.index < 0) hw = pickWall(map, mvScale, mvOx, mvOy, mouseX, mouseY, proj);
+                hovSprite = dragSprite >= 0 ? dragSprite
+                          : (hv.index < 0 ? pickSprite(map, mvScale, mvOx, mvOy, mouseX, mouseY) : -1);
             }
             renderer.drawMapEditor(map, mvScale, mvOx, mvOy, hv.sector, hv.index, hw.sector, hw.index,
-                                   { player.camera.x, player.camera.y }, player.camera.angle);
+                                   { player.camera.x, player.camera.y }, player.camera.angle, hovSprite);
             if(drawing) renderer.drawPendingSector(drawPts, mvScale, mvOx, mvOy, mouseX, mouseY);
         } else
 #endif

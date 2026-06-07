@@ -386,7 +386,7 @@ void Renderer::crosshair(uint32_t col){
 
 void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
                              int hovSec, int hovVert, int hwSec, int hwWall,
-                             Vec2 pp, float pa){
+                             Vec2 pp, float pa, int hovSprite){
     auto SX = [&](float wx){ return (int)(ox + wx*sc); };
     auto SY = [&](float wy){ return (int)(oy - wy*sc); };
 
@@ -420,6 +420,24 @@ void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
             for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putPixel(vx+dx, vy+dy, c);
         }
     }
+    // sprites (diamonds in their own colour, so they read as distinct from the
+    // square vertices; the hovered/dragged one gets a white ring)
+    for(int i = 0; i < (int)m.sprites.size(); ++i){
+        int sx = SX(m.sprites[i].position.x), sy = SY(m.sprites[i].position.y);
+        uint32_t c = m.sprites[i].color | 0xFF000000u;
+        int r = 3;
+        for(int dy=-r-1; dy<=r+1; ++dy) for(int dx=-r-1; dx<=r+1; ++dx){
+            int man = std::abs(dx) + std::abs(dy);
+            if(man <= r)      putPixel(sx+dx, sy+dy, c);          // filled diamond
+            else if(man == r+1) putPixel(sx+dx, sy+dy, 0xFF101014); // dark outline
+        }
+        if(i == hovSprite)
+            for(int k = 0; k < 16; ++k){
+                float t = k * (PI_F / 8.0f);
+                putPixel(sx + (int)(std::cos(t)*(r+3)), sy + (int)(std::sin(t)*(r+3)), 0xFFffffff);
+            }
+    }
+
     // player marker + facing
     int px = SX(pp.x), py = SY(pp.y);
     drawLine(px, py, SX(pp.x + std::cos(pa)*1.6f), SY(pp.y + std::sin(pa)*1.6f), 0xFFffd040);

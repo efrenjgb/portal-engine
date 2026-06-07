@@ -110,7 +110,9 @@ and broken when they no longer match. Coincident vertices (portal seams) are mov
 deleted together to keep portals matched. Drawing a new sector (`B`, `addSector`)
 snaps each point to the grid or an existing vertex, forces CCW winding, inherits
 heights/colours via `pointInSector`, and relies on the same `rebuildPortals` step to
-bond any shared edge — so there is no explicit "connect" operation anywhere.
+bond any shared edge — so there is no explicit "connect" operation anywhere. Sprites
+are drawn as diamonds and can be dragged to set their x/y (`pickSprite`); their
+height is set in 3D. Undo (`Z`) snapshots both sectors and sprites.
 
 ## Conventions
 

@@ -55,7 +55,9 @@ walls; in edit mode the **magenta** outline is the sector you're aiming at and a
 map. **Drag** a vertex with the left mouse button to move it — coincident vertices
 (the two sides of a portal) move together so portals stay joined. Sprites show as
 **coloured diamonds**; drag one to reposition it in the floor plane (its height is
-edited separately in 3D with `T`/`G`). **Click on a
+edited separately in 3D with `T`/`G`). Press `N` to **add** a sprite at the cursor
+(it rests on the floor of the sector it lands in); `Delete`/`X` removes the hovered
+sprite (or vertex). **Click on a
 wall** (not on a vertex) to insert a new vertex there, splitting the wall; if it's
 a portal, the neighbour's matching wall is split too, and the new vertex is picked
 up for dragging in the same motion. The **mouse wheel** zooms toward the cursor and

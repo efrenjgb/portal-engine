@@ -230,8 +230,8 @@ int main(int argc, char** argv){
              "     , / .       :   pan texture vertically\n"
              "   N             :   cycle image texture on aimed surface\n"
              "   O             :   toggle sky backdrop on aimed ceiling\n"
-             "   Enter         : 2D map view  (G grid snap, hold Alt to bypass | Z undo | Del/X delete vertex)\n"
-             "                     drag a vertex to move it; drag a sprite (diamond) to reposition it;\n"
+             "   Enter         : 2D map view  (G grid snap, hold Alt to bypass | Z undo | Del/X delete vertex/sprite)\n"
+             "                     drag a vertex to move it; drag a sprite (diamond) to reposition it; N adds a sprite;\n"
              "                     click a wall to split in a vertex; coincide two walls to bond a portal;\n"
              "                     B draws a new sector (click points, click the first to close)\n"
              "   P             : set player start to current position\n"
@@ -373,19 +373,35 @@ int main(int argc, char** argv){
                         }
                         if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x){
                             VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
-                            if(v.index >= 0){
+                            int sp;
+                            if(v.index >= 0){               // delete a vertex...
                                 pushUndo();
                                 if(!deleteVertex(map, map.sectors[v.sector].vertices[v.index])){
                                     undo.pop_back();          // nothing removed: drop the snapshot
                                     printf("can't delete: a sector would drop below 3 vertices\n");
                                     showMessage("can't delete (min 3 vertices)");
                                 } else { rebuildPortals(map); dragVerts.clear(); printf("deleted vertex\n"); showMessage("deleted vertex"); }
+                            } else if((sp = pickSprite(map, mvScale, mvOx, mvOy, mouseX, mouseY)) >= 0){
+                                pushUndo();                 // ...else a sprite under the cursor
+                                map.sprites.erase(map.sprites.begin() + sp);
+                                printf("deleted sprite %d\n", sp); showMessage("deleted sprite");
                             }
+                        }
+                        if(k == SDLK_n){                    // drop a new sprite at the cursor
+                            Vec2 wp = snap({ s2wx(mouseX), s2wy(mouseY) });
+                            pushUndo();
+                            Sprite s; s.position = wp; s.z = 0.0f;
+                            s.radius = 0.35f; s.height = 1.1f; s.color = 0xFFc0a040;
+                            for(const Sector& S : map.sectors)         // rest on that sector's floor
+                                if(pointInSector(S, wp)){ s.z = S.floor; break; }
+                            map.sprites.push_back(s);
+                            printf("added sprite %d\n", (int)map.sprites.size()-1);
+                            showMessage("added sprite " + std::to_string((int)map.sprites.size()-1));
                         }
                     }
                 }
                 if(k == SDLK_TAB) editMode = !editMode;
-                if(k == SDLK_n){   // cycle image texture on the aimed surface
+                if(k == SDLK_n && !mapView){   // cycle image texture on the aimed surface (3D)
                     SurfaceRef a = renderer.pickAt(W/2, H/2);
                     int n = (int)texSet.size(), *idp = nullptr;
                     if(a.sector >= 0 && a.sector < (int)map.sectors.size()){
@@ -398,7 +414,7 @@ int main(int argc, char** argv){
                              printf("texture id = %d %s\n", *idp, *idp < 0 ? "(procedural)" : "");
                              showMessage(*idp < 0 ? "texture: procedural" : "texture id " + std::to_string(*idp)); }
                 }
-                if(k == SDLK_o){   // toggle sky backdrop on the aimed ceiling
+                if(k == SDLK_o && !mapView){   // toggle sky backdrop on the aimed ceiling (3D)
                     SurfaceRef a = renderer.pickAt(W/2, H/2);
                     if(a.kind == SurfaceRef::Ceiling && a.sector >= 0 && a.sector < (int)map.sectors.size()){
                         bool& sky = map.sectors[a.sector].ceilingIsSky;

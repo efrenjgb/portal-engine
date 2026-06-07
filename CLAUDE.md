@@ -121,7 +121,9 @@ snaps each point to the grid or an existing vertex, forces CCW winding, inherits
 heights/colours via `pointInSector`, and relies on the same `rebuildPortals` step to
 bond any shared edge — so there is no explicit "connect" operation anywhere. Sprites
 are drawn as diamonds and can be dragged to set their x/y (`pickSprite`); their
-height is set in 3D. Undo (`Z`) snapshots both sectors and sprites.
+height is set in 3D. `N` adds a sprite at the cursor (resting on the sector floor via
+`pointInSector`); Delete/X removes the hovered sprite (or vertex). Undo (`Z`)
+snapshots both sectors and sprites.
 
 ## Conventions
 

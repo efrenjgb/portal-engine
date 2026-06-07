@@ -107,8 +107,8 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         int idx = y*W + x;
         if(tz >= zbuf_[idx]) continue;                // z-test: keep the nearer surface
         float txc = (x - W * 0.5f) * tz / F_;
-        float wx = P.x + P.vcos * tz + P.vsin * txc;
-        float wy = P.y + P.vsin * tz - P.vcos * txc;
+        float wx = P.x + P.yawCos * tz + P.yawSin * txc;
+        float wy = P.y + P.yawSin * tz - P.yawCos * txc;
         float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(sx, sy) : planeTex(base, sx, sy);
         fb_[idx]      = shade(c, distFade(tz));
@@ -180,8 +180,8 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
 
             float vx1 = a.x - P.x, vy1 = a.y - P.y;
             float vx2 = b.x - P.x, vy2 = b.y - P.y;
-            float tx1 = vx1*P.vsin - vy1*P.vcos, tz1 = vx1*P.vcos + vy1*P.vsin;
-            float tx2 = vx2*P.vsin - vy2*P.vcos, tz2 = vx2*P.vcos + vy2*P.vsin;
+            float tx1 = vx1*P.yawSin - vy1*P.yawCos, tz1 = vx1*P.yawCos + vy1*P.yawSin;
+            float tx2 = vx2*P.yawSin - vy2*P.yawCos, tz2 = vx2*P.yawCos + vy2*P.yawSin;
 
             float wlen = std::sqrt((b.x-a.x)*(b.x-a.x) + (b.y-a.y)*(b.y-a.y));
             float u1 = 0.0f, u2 = wlen;
@@ -302,7 +302,7 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
     std::vector<float> depth(ns);
     for(int i = 0; i < ns; ++i){
         float rx = map.sprites[i].position.x - P.x, ry = map.sprites[i].position.y - P.y;
-        depth[i] = rx*P.vcos + ry*P.vsin;
+        depth[i] = rx*P.yawCos + ry*P.yawSin;
         order[i] = i;
     }
     for(int i = 1; i < ns; ++i){                  // insertion sort, far to near
@@ -315,9 +315,9 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
         int si = order[o];
         const Sprite& sp = map.sprites[si];
         float rx = sp.position.x - P.x, ry = sp.position.y - P.y;
-        float tz = rx*P.vcos + ry*P.vsin;
+        float tz = rx*P.yawCos + ry*P.yawSin;
         if(tz < 0.2f) continue;
-        float tx = rx*P.vsin - ry*P.vcos;
+        float tx = rx*P.yawSin - ry*P.yawCos;
 
         float sc  = F_ / tz;
         float cx  = W*0.5f + tx * sc;
@@ -376,7 +376,7 @@ void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim,
         putpx(sx, sy, 0xFF20e0ff);
     }
     int px = MX(P.x), py = MY(P.y);
-    line2d(px, py, MX(P.x + P.vcos*1.6f), MY(P.y + P.vsin*1.6f), 0xFFffd040);
+    line2d(px, py, MX(P.x + P.yawCos*1.6f), MY(P.y + P.yawSin*1.6f), 0xFFffd040);
     for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putpx(px+dx, py+dy, 0xFFff4040);
 }
 

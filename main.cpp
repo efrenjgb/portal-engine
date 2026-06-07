@@ -427,8 +427,8 @@ int main(int argc, char** argv){
         if(ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])  str -= 1;
         if(fwd || str){
             float sp = MOVE_SPD * dt;
-            float dx = (player.cam.vcos*fwd + player.cam.vsin*str) * sp;
-            float dy = (player.cam.vsin*fwd - player.cam.vcos*str) * sp;
+            float dx = (player.cam.yawCos*fwd + player.cam.yawSin*str) * sp;
+            float dy = (player.cam.yawSin*fwd - player.cam.yawCos*str) * sp;
             player.move(map, dx, dy);
         }
         player.collideSprites(map);

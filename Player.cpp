@@ -79,7 +79,7 @@ void Player::collideSprites(const Map& map){
 }
 
 int Player::pickSector(const Map& map) const {
-    float px = cam.x, py = cam.y, dx = cam.vcos, dy = cam.vsin;
+    float px = cam.x, py = cam.y, dx = cam.yawCos, dy = cam.yawSin;
     int sec = sector;
     for(int iter = 0; iter < 64; ++iter){
         const Sector& s = map.sectors[sec];

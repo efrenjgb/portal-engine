@@ -16,7 +16,7 @@ make          # editor build -> ./portal_engine  (EDITOR=1: in-engine editor + p
 make run      # build, then ./portal_engine (loads ./map.txt)
 make play     # stripped build (-DEDITOR=0): no editor, no pick buffer; cleans first
 make clean
-./portal_engine [mapfile]   # mapfile defaults to ./map.txt
+./portal_engine [mapfile] [--novsync]   # mapfile defaults to ./map.txt; --novsync uncaps FPS
 ```
 
 The `EDITOR` macro (default 1, set in `Vec2.h`) `#if`-strips all editor input, the

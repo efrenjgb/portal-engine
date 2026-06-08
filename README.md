@@ -6,7 +6,7 @@ walls, and a portal flood**, with no BSP tree.
 
 ```sh
 make run                 # builds (c++ -std=c++17, sdl2-config) and launches map.txt
-./portal_engine [mapfile] # defaults to ./map.txt
+./portal_engine [mapfile] [--novsync] # mapfile defaults to ./map.txt; --novsync uncaps FPS
 make play                # stripped build: no editor, no pick buffer (-DEDITOR=0)
 ```
 

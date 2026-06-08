@@ -172,7 +172,14 @@ static bool addSector(Map& m, std::vector<Vec2> pts){
 #endif
 
 int main(int argc, char** argv){
-    std::string mapPath = (argc > 1) ? argv[1] : "map.txt";
+    // Args: an optional map file (first non-flag arg) and flags. --novsync uncaps
+    // the frame rate (renderer created without SDL_RENDERER_PRESENTVSYNC).
+    std::string mapPath = "map.txt";
+    bool vsync = true;
+    for(int i = 1; i < argc; ++i){
+        if(std::string(argv[i]) == "--novsync") vsync = false;
+        else mapPath = argv[i];
+    }
     auto loaded = loadMap(mapPath);
     if(!loaded) return 1;
     Map map = std::move(*loaded);
@@ -197,7 +204,9 @@ int main(int argc, char** argv){
     const int W = Renderer::W, H = Renderer::H;
     SDL_Window*   win = SDL_CreateWindow("Build-style portal engine (C++)",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, 0);
-    SDL_Renderer* ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
+    Uint32 renFlags = SDL_RENDERER_ACCELERATED | (vsync ? SDL_RENDERER_PRESENTVSYNC : 0u);
+    SDL_Renderer* ren = SDL_CreateRenderer(win, -1, renFlags);
+    printf("vsync %s\n", vsync ? "on" : "off (--novsync)");
     SDL_Texture*  tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888,
         SDL_TEXTUREACCESS_STREAMING, W, H);
     SDL_SetRelativeMouseMode(SDL_TRUE);

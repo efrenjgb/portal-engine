@@ -60,9 +60,11 @@ std::optional<Map> loadMap(const std::string& path){
             if(cur < 0){ fprintf(stderr, "map:%d ceilsky before sector\n", ln); fclose(f); return std::nullopt; }
             m.sectors[cur].ceilingIsSky = true;
         } else if(!strcmp(kw, "sprite")){
-            float x, y, z, r, h; unsigned col;
-            if(sscanf(p, "%*s %f %f %f %f %f %x", &x, &y, &z, &r, &h, &col) != 6){ fprintf(stderr, "map:%d bad sprite\n", ln); fclose(f); return std::nullopt; }
-            Sprite S; S.position = {x, y}; S.z = z; S.radius = r; S.height = h; S.color = 0xFF000000u|col;
+            float x, y, z, r, h; unsigned col; int texId = -1;
+            int got = sscanf(p, "%*s %f %f %f %f %f %x %d", &x, &y, &z, &r, &h, &col, &texId);
+            if(got != 6 && got != 7){ fprintf(stderr, "map:%d bad sprite\n", ln); fclose(f); return std::nullopt; }
+            Sprite S; S.position = {x, y}; S.z = z; S.radius = r; S.height = h;
+            S.color = 0xFF000000u|col; S.textureId = texId;
             m.sprites.push_back(S);
         } else {
             fprintf(stderr, "map:%d unknown keyword '%s'\n", ln, kw);
@@ -119,9 +121,12 @@ bool saveMap(const Map& m, const std::string& path){
         if(s.ceilingIsSky) fprintf(f, "  ceilsky\n");
         fprintf(f, "\n");
     }
-    for(const Sprite& s : m.sprites)
-        fprintf(f, "sprite %g %g %g %g %g %06x\n", s.position.x, s.position.y, s.z,
+    for(const Sprite& s : m.sprites){
+        fprintf(f, "sprite %g %g %g %g %g %06x", s.position.x, s.position.y, s.z,
                 s.radius, s.height, (unsigned)(s.color & 0xFFFFFF));
+        if(s.textureId >= 0) fprintf(f, " %d", s.textureId);
+        fprintf(f, "\n");
+    }
 
     fclose(f);
     printf("saved map to '%s'\n", path.c_str());

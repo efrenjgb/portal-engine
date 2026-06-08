@@ -35,6 +35,7 @@ struct Sprite {
     Vec2 position;
     float z = 0, radius = 0, height = 0;
     uint32_t color = 0;
+    int textureId = -1;     // image texture index, or -1 for the procedural billboard
 };
 
 struct Map {

@@ -330,13 +330,16 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
         int yt = (int)ytopf,      yb = (int)yfeet;
         if(x1 <= x0 || yb <= yt) continue;
         float fade = distFade(tz);
+        const Texture* img = imageFor(sp.textureId);     // image billboard, or null = procedural
 
         for(int x = std::max(x0,0); x <= std::min(x1,W-1); ++x){
             float uu = (x - x0) / (float)(x1 - x0);
             for(int y = std::max(yt,0); y <= std::min(yb,H-1); ++y){
                 if(tz >= depthBuffer_[y*W + x]) continue;
                 float vv = (y - yt) / (float)(yb - yt);
-                uint32_t c = sampleSprite(sp.color, uu, vv);
+                uint32_t c;
+                if(img){ uint32_t t = img->at(uu, vv); c = (t >> 24) < 128 ? 0 : (t & 0xFFFFFF); }
+                else     c = sampleSprite(sp.color, uu, vv);
                 if(c){
                     frameBuffer_[y*W + x] = shade(c, fade);
 #if EDITOR

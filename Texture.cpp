@@ -6,11 +6,11 @@
 // Load PNG/JPG/BMP/TGA via stb_image; fall back to PPM (which stb doesn't read).
 std::optional<Texture> loadImage(const std::string& path){
     int w = 0, h = 0, n = 0;
-    unsigned char* d = stbi_load(path.c_str(), &w, &h, &n, 3);   // force RGB
+    unsigned char* d = stbi_load(path.c_str(), &w, &h, &n, 4);   // force RGBA (keep alpha)
     if(d){
         Texture t; t.width = w; t.height = h; t.pixels.resize((size_t)w * h);
         for(size_t i = 0; i < t.pixels.size(); ++i)
-            t.pixels[i] = 0xFF000000u | (d[i*3] << 16) | (d[i*3+1] << 8) | d[i*3+2];
+            t.pixels[i] = ((uint32_t)d[i*4+3] << 24) | (d[i*4] << 16) | (d[i*4+1] << 8) | d[i*4+2];
         stbi_image_free(d);
         return t;
     }

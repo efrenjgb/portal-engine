@@ -17,16 +17,16 @@ extracted from the freely-distributable *shareware* GRP.
 import os, sys, struct, zlib
 
 
-def write_png(path, rgb, w, h):
+def write_png(path, rgba, w, h):
     raw = bytearray()
     for y in range(h):                       # one filter byte (0 = none) per scanline
         raw.append(0)
-        raw += rgb[y*w*3:(y+1)*w*3]
+        raw += rgba[y*w*4:(y+1)*w*4]
     def chunk(typ, data):
         return (struct.pack(">I", len(data)) + typ + data +
                 struct.pack(">I", zlib.crc32(typ + data) & 0xffffffff))
     png = (b"\x89PNG\r\n\x1a\n"
-           + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))   # 8-bit RGB
+           + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))   # 8-bit RGBA
            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
            + chunk(b"IEND", b""))
     with open(path, "wb") as f:
@@ -80,14 +80,18 @@ def decode_art(art, palette, out_dir, lo, hi):
         data = art[o:o + w*h]; o += w*h
         if tile < lo or tile > hi:
             continue
-        rgb = bytearray(w*h*3)
+        rgba = bytearray(w*h*4)
         for x in range(w):                   # source is column-major
             col = x*h
             for y in range(h):
-                r, g, b = palette[data[col + y]]
-                j = (y*w + x)*3
-                rgb[j], rgb[j+1], rgb[j+2] = r, g, b
-        write_png(os.path.join(out_dir, "tile%04d.png" % tile), bytes(rgb), w, h)
+                idx = data[col + y]
+                j = (y*w + x)*4
+                if idx == 255:               # BUILD's transparency key
+                    rgba[j:j+4] = b"\x00\x00\x00\x00"
+                else:
+                    r, g, b = palette[idx]
+                    rgba[j], rgba[j+1], rgba[j+2], rgba[j+3] = r, g, b, 255
+        write_png(os.path.join(out_dir, "tile%04d.png" % tile), bytes(rgba), w, h)
         written += 1
     return written
 

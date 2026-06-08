@@ -37,6 +37,12 @@ public:
     // punctuation). Advances 6*scale px per glyph. Returns the drawn width in px.
     int drawText(int x, int y, const char* text, uint32_t color, int scale = 2);
 
+    // Full-screen texture picker: a BR_COLS x BR_ROWS grid of thumbnails for the
+    // given page, with hoverCell (0..cells-1, or -1) highlighted. Layout below is
+    // shared with main.cpp's hit-testing.
+    static constexpr int BR_COLS = 8, BR_ROWS = 5, BR_HEAD = 28;
+    void drawTextureBrowser(const std::vector<Texture>& pool, int page, int hoverCell);
+
     // Full-screen top-down map editor. (sc, ox, oy) map world->screen as
     // sx = ox + wx*sc, sy = oy - wy*sc. hov*/hw* highlight a vertex / wall.
     void drawMapEditor(const Map& map, float sc, float ox, float oy,

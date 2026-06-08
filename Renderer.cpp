@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 
 // ---- procedural textures (file-local) --------------------------------------
 static uint32_t sampleBrick(uint32_t base, float u, float v){     // brick walls
@@ -467,6 +468,44 @@ int Renderer::drawText(int x, int y, const char* text, uint32_t color, int scale
         cx += 6 * scale;                                   // 5px glyph + 1px gap
     }
     return cx - x;
+}
+
+void Renderer::drawTextureBrowser(const std::vector<Texture>& pool, int page, int hoverCell){
+    for(int i = 0; i < W*H; ++i)                            // dim the scene behind
+        frameBuffer_[i] = blendRGB(frameBuffer_[i], 0x000000u, 210);
+
+    const int per = BR_COLS * BR_ROWS, first = page * per;
+    const int cw = W / BR_COLS, ch = (H - BR_HEAD) / BR_ROWS;
+    int pages = pool.empty() ? 1 : (int)((pool.size() + per - 1) / per);
+
+    char head[64];
+    snprintf(head, sizeof head, "TEXTURES  PAGE %d/%d   WHEEL PAGE   CLICK PICK   ESC CLOSE",
+             page + 1, pages);
+    drawText(6, 8, head, 0xFFf0e070, 2);
+
+    for(int c = 0; c < per; ++c){
+        int idx = first + c;
+        if(idx >= (int)pool.size()) break;
+        int col = c % BR_COLS, row = c / BR_COLS;
+        int x0 = col*cw, y0 = BR_HEAD + row*ch;
+        const Texture& t = pool[idx];
+        int pad = 6, iw = cw - 2*pad, ih = ch - 2*pad - 10;     // 10px reserved for the label
+        for(int yy = 0; yy < ih; ++yy){
+            int sy = t.height ? yy * t.height / ih : 0;
+            for(int xx = 0; xx < iw; ++xx){
+                int sx = t.width ? xx * t.width / iw : 0;
+                uint32_t px = t.pixels.empty() ? 0xFF303030u : t.pixels[(size_t)sy*t.width + sx];
+                if((px >> 24) < 128) continue;                  // let backdrop show through
+                frameBuffer_[(size_t)(y0+pad+yy)*W + (x0+pad+xx)] = 0xFF000000u | (px & 0xFFFFFF);
+            }
+        }
+        char lab[16]; snprintf(lab, sizeof lab, "%d", idx);
+        drawText(x0+pad, y0+ch-9, lab, 0xFFb8c0cc, 1);
+        if(c == hoverCell){                                     // highlight border
+            for(int xx = x0; xx < x0+cw; ++xx){ putPixel(xx, y0, 0xFFffffff); putPixel(xx, y0+ch-1, 0xFFffffff); }
+            for(int yy = y0; yy < y0+ch; ++yy){ putPixel(x0, yy, 0xFFffffff); putPixel(x0+cw-1, yy, 0xFFffffff); }
+        }
+    }
 }
 
 void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,

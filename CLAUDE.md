@@ -79,6 +79,13 @@ Floors/ceilings are drawn per-pixel by inverse projection (`planeSpan`, "floor c
 Sky is a static screen-locked backdrop (`skySpan`, `ceilingIsSky` per sector). Sprites are
 billboards sorted far-to-near and z-tested (`drawSprites`).
 
+**Texture picker (EDITOR).** `B` in the 3D view opens `Renderer::drawTextureBrowser`,
+a modal thumbnail grid of the PNGs under `textures/duke/` (lazy-loaded into a browse
+pool on first open). Clicking a tile calls `ensureTexture` (appends it to `map.textures`
++ `texSet` only if new, so saves stay minimal) and sets the aimed wall/floor/ceiling
+`textureId` or the aimed sprite's `textureId`. Image textures carry alpha (loadImage
+forces RGBA); walls stay opaque via `shade`, sprites cut out on alpha < 128.
+
 **HUD text** is a built-in 5x7 bitmap font (`Renderer::drawText`, font table in
 `Renderer.cpp`) drawn straight into the framebuffer — no SDL_ttf. It uppercases input
 and covers digits, A-Z and a little punctuation; the top byte of the colour is an

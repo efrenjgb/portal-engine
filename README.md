@@ -42,7 +42,11 @@ and the *floor* when you're looking down, acting on the sector under the crossha
 (so you can edit a room you're looking into). The remaining keys act on the surface
 under the crosshair: `[`/`]` shrink/grow
 the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, `N` cycles the
-surface's image texture, and `O` toggles a static sky backdrop on a ceiling. `P` sets the
+surface's image texture, and `O` toggles a static sky backdrop on a ceiling.
+`B` opens a **texture picker**: aim at a wall/floor/ceiling or a sprite, press `B`,
+then click a thumbnail to assign it (wheel/arrows page, `Esc` closes). It browses the
+tiles under `textures/duke/` (see the GRP importer below); only the textures you pick
+get added to the map and saved. `P` sets the
 player start to where you're standing (shown cyan on the minimap). `K` saves the
 edited world to `<mapfile>.save` (reload it with `./portal_engine <mapfile>.save`);
 re-saving a map you loaded *from* a `.save` overwrites it in place instead of piling

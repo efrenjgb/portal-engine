@@ -7,6 +7,7 @@
 #include <utility>
 #include <algorithm>
 #include <vector>
+#include <filesystem>
 #include "Map.h"
 #include "Texture.h"
 #include "Renderer.h"
@@ -238,6 +239,7 @@ int main(int argc, char** argv){
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
              "   N             :   cycle image texture on aimed surface\n"
+             "   B             :   browse + pick a texture for the aimed wall/sprite\n"
              "   O             :   toggle sky backdrop on aimed ceiling\n"
              "   Enter         : 2D map view  (G grid snap, hold Alt to bypass | Z undo | Del/X delete vertex/sprite)\n"
              "                     drag a vertex to move it; drag a sprite (diamond) to reposition it; N adds a sprite;\n"
@@ -285,6 +287,34 @@ int main(int argc, char** argv){
     std::vector<Toast> toasts;
     auto showMessage = [&](std::string s){ toasts.push_back({ std::move(s), 3.0f });
                                            if(toasts.size() > 10) toasts.erase(toasts.begin()); };
+
+    // ---- texture picker (B) ----
+    bool browsing = false; int browsePage = 0, browseHover = -1;
+    SurfaceRef pickTarget; int targetSprite = -1;     // what the picker assigns to
+    std::vector<std::string> browsePaths;             // textures/duke/*.png (lazy-loaded)
+    std::vector<Texture>     browseTex;
+    bool browseLoaded = false;
+    auto loadBrowse = [&](){
+        if(browseLoaded) return;
+        browseLoaded = true;
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        for(auto& e : fs::directory_iterator("textures/duke", ec))
+            if(e.path().extension() == ".png") browsePaths.push_back(e.path().string());
+        std::sort(browsePaths.begin(), browsePaths.end());
+        for(auto& p : browsePaths){ auto t = loadImage(p); browseTex.push_back(t ? std::move(*t) : Texture{}); }
+        printf("texture picker: loaded %zu tiles from textures/duke\n", browseTex.size());
+    };
+    // return the texSet index for a path, loading+appending it (and recording it
+    // in the map) the first time so only picked textures get saved.
+    auto ensureTexture = [&](const std::string& path) -> int {
+        for(int i = 0; i < (int)map.textures.size(); ++i) if(map.textures[i] == path) return i;
+        auto t = loadImage(path);
+        map.textures.push_back(path);
+        texSet.push_back(t ? std::move(*t) : Texture{});
+        renderer.setTextures(&texSet);                // vector may have reallocated
+        return (int)texSet.size() - 1;
+    };
 #endif
 
     while(running){
@@ -294,11 +324,42 @@ int main(int argc, char** argv){
             if(e.type == SDL_QUIT) running = false;
             else if(e.type == SDL_MOUSEMOTION){
 #if EDITOR
-                if(mapView){ mouseX = e.motion.x; mouseY = e.motion.y; } else
+                if(browsing || mapView){ mouseX = e.motion.x; mouseY = e.motion.y; } else
 #endif
                 if(mouseGrabbed){ mdx += e.motion.xrel; mdy += e.motion.yrel; }
             }
 #if EDITOR
+            else if(e.type == SDL_MOUSEWHEEL && browsing){
+                int per = Renderer::BR_COLS * Renderer::BR_ROWS;
+                int pages = browseTex.empty() ? 1 : ((int)browseTex.size() + per - 1) / per;
+                browsePage = clampi(browsePage + (e.wheel.y > 0 ? -1 : 1), 0, pages - 1);
+            }
+            else if(e.type == SDL_MOUSEBUTTONDOWN && browsing && e.button.button == SDL_BUTTON_LEFT){
+                const int per = Renderer::BR_COLS * Renderer::BR_ROWS;
+                const int cw = W / Renderer::BR_COLS, ch = (H - Renderer::BR_HEAD) / Renderer::BR_ROWS;
+                int mx = e.button.x, my = e.button.y;
+                if(my >= Renderer::BR_HEAD){
+                    int col = mx / cw, row = (my - Renderer::BR_HEAD) / ch;
+                    int idx = browsePage*per + row*Renderer::BR_COLS + col;
+                    if(col >= 0 && col < Renderer::BR_COLS && row >= 0 && row < Renderer::BR_ROWS &&
+                       idx >= 0 && idx < (int)browsePaths.size()){
+                        pushUndo();
+                        int tid = ensureTexture(browsePaths[idx]);
+                        if(targetSprite >= 0 && targetSprite < (int)map.sprites.size())
+                            map.sprites[targetSprite].textureId = tid;
+                        else if(pickTarget.sector >= 0 && pickTarget.sector < (int)map.sectors.size()){
+                            Sector& s = map.sectors[pickTarget.sector];
+                            if(pickTarget.kind == SurfaceRef::Wall && pickTarget.wall < (int)s.wallTextureIds.size())
+                                s.wallTextureIds[pickTarget.wall] = tid;
+                            else if(pickTarget.kind == SurfaceRef::Floor)   s.floorTextureId   = tid;
+                            else if(pickTarget.kind == SurfaceRef::Ceiling) s.ceilingTextureId = tid;
+                        }
+                        showMessage("texture set (tile " + std::to_string(idx) + ")");
+                        browsing = false;
+                        SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE);
+                    }
+                }
+            }
             else if(e.type == SDL_MOUSEWHEEL && mapView){
                 float wx = s2wx(mouseX), wy = s2wy(mouseY);            // zoom toward cursor
                 mvScale = clampf(mvScale * (e.wheel.y > 0 ? 1.15f : e.wheel.y < 0 ? 0.87f : 1.0f), 2.0f, 400.0f);
@@ -346,11 +407,31 @@ int main(int argc, char** argv){
 #endif
             else if(e.type == SDL_KEYDOWN){
                 SDL_Keycode k = e.key.keysym.sym;
+#if EDITOR
+                if(browsing){                      // ---- texture picker is modal ----
+                    int per = Renderer::BR_COLS * Renderer::BR_ROWS;
+                    int pages = browseTex.empty() ? 1 : ((int)browseTex.size() + per - 1) / per;
+                    if(k == SDLK_ESCAPE || k == SDLK_b){ browsing = false;
+                        SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE); }
+                    else if(k==SDLK_RIGHT || k==SDLK_DOWN || k==SDLK_PAGEDOWN) browsePage = clampi(browsePage+1, 0, pages-1);
+                    else if(k==SDLK_LEFT  || k==SDLK_UP   || k==SDLK_PAGEUP)   browsePage = clampi(browsePage-1, 0, pages-1);
+                } else {
+#endif
                 if(k == SDLK_ESCAPE) running = false;
                 if(k == SDLK_SPACE)  player.jump();
                 if(k == SDLK_m){ mouseGrabbed = !mouseGrabbed;
                                  SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE); }
 #if EDITOR
+                if(k == SDLK_b && !mapView){        // open the picker on the aimed wall/sprite
+                    SurfaceRef a = renderer.pickAt(W/2, H/2);
+                    if(a.kind == SurfaceRef::None) showMessage("aim at a wall or sprite first");
+                    else {
+                        if(a.kind == SurfaceRef::Sprite){ targetSprite = a.sprite; pickTarget = SurfaceRef{}; }
+                        else { pickTarget = a; targetSprite = -1; }
+                        loadBrowse(); browsing = true; browsePage = 0;
+                        SDL_SetRelativeMouseMode(SDL_FALSE);
+                    }
+                }
                 if(k == SDLK_RETURN || k == SDLK_KP_ENTER){
                     mapView = !mapView;
                     drawing = false; drawPts.clear();   // leaving the view cancels a draw
@@ -443,6 +524,7 @@ int main(int argc, char** argv){
                            map.playerStart.x, map.playerStart.y, map.startSector,
                            map.startAngle * 180.0f / PI_F);
                 }
+                }  // end if(!browsing)
 #endif
             }
         }
@@ -461,6 +543,7 @@ int main(int argc, char** argv){
         const Uint8* ks = SDL_GetKeyboardState(nullptr);
         SurfaceRef aim;                       // None in play build / map view
 #if EDITOR
+        if(browsing){ /* texture picker is modal: freeze the world */ } else
         if(mapView){
             float pan = 320.0f * dt;          // arrow keys pan the 2D view
             if(ks[SDL_SCANCODE_LEFT])  mvOx += pan;
@@ -588,6 +671,18 @@ int main(int argc, char** argv){
                                  map.playerStart, map.startAngle);
             renderer.crosshair(editMode ? 0xFF40ff40 : 0xFFe0e0e0);
         }
+#if EDITOR
+        if(browsing){                                  // texture picker over the frozen scene
+            const int cw = W/Renderer::BR_COLS, ch = (H-Renderer::BR_HEAD)/Renderer::BR_ROWS;
+            browseHover = -1;
+            if(mouseY >= Renderer::BR_HEAD){
+                int col = mouseX/cw, row = (mouseY-Renderer::BR_HEAD)/ch;
+                if(col >= 0 && col < Renderer::BR_COLS && row >= 0 && row < Renderer::BR_ROWS)
+                    browseHover = row*Renderer::BR_COLS + col;
+            }
+            renderer.drawTextureBrowser(browseTex, browsePage, browseHover);
+        }
+#endif
 
         // ---- HUD (over everything) ----
         {

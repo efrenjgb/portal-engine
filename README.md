@@ -215,6 +215,14 @@ texture and it's saved per-surface.
 Distance shading (fog) and procedural textures (brick walls, tiled floors) are
 the fallback when a surface has no image assigned.
 
+**Importing BUILD-engine art.** `tools/grp_extract.py` reads a Ken Silverman `.GRP`
+(e.g. the freely distributable Duke Nukem 3D *shareware* `DUKE3D.GRP`) and writes one
+PNG per tile into a folder — it un-archives the GRP, decodes the column-major 8-bit
+`TILESxxx.ART` tiles, and applies the 6-bit `PALETTE.DAT`. Point a wall/floor `texture`
+at one of those PNGs to use it. The GRP and the extracted tiles are git-ignored (don't
+commit copyrighted art); run the tool locally:
+`python3 tools/grp_extract.py DUKE3D.GRP textures/duke`.
+
 ## Things deliberately left out (good next steps)
 
 - **Sloped floors**, and **"sector over sector"** stacking (Build's room-over-room

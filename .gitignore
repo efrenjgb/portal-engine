@@ -5,3 +5,8 @@ portal_engine
 
 # maps saved from the in-engine editor
 *.save
+
+# game data + extracted art (run tools/grp_extract.py locally; not redistributed here)
+*.grp
+*.GRP
+/textures/duke/

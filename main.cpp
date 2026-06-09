@@ -239,7 +239,7 @@ int main(int argc, char** argv){
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
              "   N             :   cycle image texture on aimed surface\n"
-             "   B             :   browse + pick a texture for the aimed wall/sprite\n"
+             "   B             :   browse + pick a texture for the aimed wall/sprite (F: all/solid/masked)\n"
              "   O             :   toggle sky backdrop on aimed ceiling\n"
              "   Enter         : 2D map view  (G grid snap, hold Alt to bypass | Z undo | Del/X delete vertex/sprite)\n"
              "                     drag a vertex to move it; drag a sprite (diamond) to reposition it; N adds a sprite;\n"
@@ -293,7 +293,17 @@ int main(int argc, char** argv){
     SurfaceRef pickTarget; int targetSprite = -1;     // what the picker assigns to
     std::vector<std::string> browsePaths;             // textures/duke/*.png (lazy-loaded)
     std::vector<Texture>     browseTex;
+    std::vector<char>        browseMasked;            // true = has transparency (sprite-like)
+    std::vector<int>         browseView;              // pool indices passing the active filter
+    int  browseFilter = 0;                            // 0 = all, 1 = solid (walls), 2 = masked (sprites)
     bool browseLoaded = false;
+    auto filterName = [&]{ return browseFilter == 1 ? "SOLID" : browseFilter == 2 ? "MASKED" : "ALL"; };
+    auto rebuildView = [&]{
+        browseView.clear();
+        for(int i = 0; i < (int)browseTex.size(); ++i)
+            if(browseFilter == 0 || (browseFilter == 1) == (!browseMasked[i])) browseView.push_back(i);
+        browsePage = 0;
+    };
     auto loadBrowse = [&](){
         if(browseLoaded) return;
         browseLoaded = true;
@@ -302,7 +312,15 @@ int main(int argc, char** argv){
         for(auto& e : fs::directory_iterator("textures/duke", ec))
             if(e.path().extension() == ".png") browsePaths.push_back(e.path().string());
         std::sort(browsePaths.begin(), browsePaths.end());
-        for(auto& p : browsePaths){ auto t = loadImage(p); browseTex.push_back(t ? std::move(*t) : Texture{}); }
+        for(auto& p : browsePaths){
+            auto t = loadImage(p);
+            Texture tex = t ? std::move(*t) : Texture{};
+            // classify: a meaningful fraction of transparent texels => sprite-like
+            size_t clear = 0; for(uint32_t px : tex.pixels) if((px >> 24) < 128) ++clear;
+            bool masked = !tex.pixels.empty() && clear * 100 > tex.pixels.size() * 5;   // >5% clear
+            browseMasked.push_back(masked ? 1 : 0);
+            browseTex.push_back(std::move(tex));
+        }
         printf("texture picker: loaded %zu tiles from textures/duke\n", browseTex.size());
     };
     // return the texSet index for a path, loading+appending it (and recording it
@@ -331,7 +349,7 @@ int main(int argc, char** argv){
 #if EDITOR
             else if(e.type == SDL_MOUSEWHEEL && browsing){
                 int per = Renderer::BR_COLS * Renderer::BR_ROWS;
-                int pages = browseTex.empty() ? 1 : ((int)browseTex.size() + per - 1) / per;
+                int pages = browseView.empty() ? 1 : ((int)browseView.size() + per - 1) / per;
                 browsePage = clampi(browsePage + (e.wheel.y > 0 ? -1 : 1), 0, pages - 1);
             }
             else if(e.type == SDL_MOUSEBUTTONDOWN && browsing && e.button.button == SDL_BUTTON_LEFT){
@@ -340,11 +358,12 @@ int main(int argc, char** argv){
                 int mx = e.button.x, my = e.button.y;
                 if(my >= Renderer::BR_HEAD){
                     int col = mx / cw, row = (my - Renderer::BR_HEAD) / ch;
-                    int idx = browsePage*per + row*Renderer::BR_COLS + col;
+                    int vi = browsePage*per + row*Renderer::BR_COLS + col;   // index into the filtered view
                     if(col >= 0 && col < Renderer::BR_COLS && row >= 0 && row < Renderer::BR_ROWS &&
-                       idx >= 0 && idx < (int)browsePaths.size()){
+                       vi >= 0 && vi < (int)browseView.size()){
+                        int real = browseView[vi];
                         pushUndo();
-                        int tid = ensureTexture(browsePaths[idx]);
+                        int tid = ensureTexture(browsePaths[real]);
                         if(targetSprite >= 0 && targetSprite < (int)map.sprites.size())
                             map.sprites[targetSprite].textureId = tid;
                         else if(pickTarget.sector >= 0 && pickTarget.sector < (int)map.sectors.size()){
@@ -354,7 +373,7 @@ int main(int argc, char** argv){
                             else if(pickTarget.kind == SurfaceRef::Floor)   s.floorTextureId   = tid;
                             else if(pickTarget.kind == SurfaceRef::Ceiling) s.ceilingTextureId = tid;
                         }
-                        showMessage("texture set (tile " + std::to_string(idx) + ")");
+                        showMessage("texture set (tile " + std::to_string(real) + ")");
                         browsing = false;
                         SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE);
                     }
@@ -410,9 +429,11 @@ int main(int argc, char** argv){
 #if EDITOR
                 if(browsing){                      // ---- texture picker is modal ----
                     int per = Renderer::BR_COLS * Renderer::BR_ROWS;
-                    int pages = browseTex.empty() ? 1 : ((int)browseTex.size() + per - 1) / per;
+                    int pages = browseView.empty() ? 1 : ((int)browseView.size() + per - 1) / per;
                     if(k == SDLK_ESCAPE || k == SDLK_b){ browsing = false;
                         SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE); }
+                    else if(k == SDLK_f){ browseFilter = (browseFilter+1)%3; rebuildView();
+                                          showMessage(std::string("filter: ") + filterName()); }
                     else if(k==SDLK_RIGHT || k==SDLK_DOWN || k==SDLK_PAGEDOWN) browsePage = clampi(browsePage+1, 0, pages-1);
                     else if(k==SDLK_LEFT  || k==SDLK_UP   || k==SDLK_PAGEUP)   browsePage = clampi(browsePage-1, 0, pages-1);
                 } else {
@@ -428,7 +449,10 @@ int main(int argc, char** argv){
                     else {
                         if(a.kind == SurfaceRef::Sprite){ targetSprite = a.sprite; pickTarget = SurfaceRef{}; }
                         else { pickTarget = a; targetSprite = -1; }
-                        loadBrowse(); browsing = true; browsePage = 0;
+                        loadBrowse();
+                        browseFilter = (a.kind == SurfaceRef::Sprite) ? 2 : 1;  // sprite->masked, surface->solid
+                        rebuildView();
+                        browsing = true; browsePage = 0;
                         SDL_SetRelativeMouseMode(SDL_FALSE);
                     }
                 }
@@ -680,7 +704,7 @@ int main(int argc, char** argv){
                 if(col >= 0 && col < Renderer::BR_COLS && row >= 0 && row < Renderer::BR_ROWS)
                     browseHover = row*Renderer::BR_COLS + col;
             }
-            renderer.drawTextureBrowser(browseTex, browsePage, browseHover);
+            renderer.drawTextureBrowser(browseTex, browseView, browsePage, browseHover, filterName());
         }
 #endif
 

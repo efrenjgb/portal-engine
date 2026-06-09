@@ -41,7 +41,10 @@ public:
     // given page, with hoverCell (0..cells-1, or -1) highlighted. Layout below is
     // shared with main.cpp's hit-testing.
     static constexpr int BR_COLS = 8, BR_ROWS = 5, BR_HEAD = 28;
-    void drawTextureBrowser(const std::vector<Texture>& pool, int page, int hoverCell);
+    // `view` lists which pool indices to show (the active filter); a cell maps to
+    // view[page*cells + cell] -> pool[...]. filterName labels the header.
+    void drawTextureBrowser(const std::vector<Texture>& pool, const std::vector<int>& view,
+                            int page, int hoverCell, const char* filterName);
 
     // Full-screen top-down map editor. (sc, ox, oy) map world->screen as
     // sx = ox + wx*sc, sy = oy - wy*sc. hov*/hw* highlight a vertex / wall.

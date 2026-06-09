@@ -85,6 +85,10 @@ pool on first open). Clicking a tile calls `ensureTexture` (appends it to `map.t
 + `texSet` only if new, so saves stay minimal) and sets the aimed wall/floor/ceiling
 `textureId` or the aimed sprite's `textureId`. Image textures carry alpha (loadImage
 forces RGBA); walls stay opaque via `shade`, sprites cut out on alpha < 128.
+`F` filters the grid All/Solid/Masked — tiles are classified once at load by their
+transparent-texel fraction (>5% = masked/sprite-like), and the picker opens on Solid
+for a surface, Masked for a sprite. (BUILD's `.ART` has no wall-vs-sprite flag, so
+this is a transparency heuristic, not metadata.)
 
 **HUD text** is a built-in 5x7 bitmap font (`Renderer::drawText`, font table in
 `Renderer.cpp`) drawn straight into the framebuffer — no SDL_ttf. It uppercases input

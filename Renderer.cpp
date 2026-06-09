@@ -470,22 +470,23 @@ int Renderer::drawText(int x, int y, const char* text, uint32_t color, int scale
     return cx - x;
 }
 
-void Renderer::drawTextureBrowser(const std::vector<Texture>& pool, int page, int hoverCell){
+void Renderer::drawTextureBrowser(const std::vector<Texture>& pool, const std::vector<int>& view,
+                                  int page, int hoverCell, const char* filterName){
     for(int i = 0; i < W*H; ++i)                            // dim the scene behind
         frameBuffer_[i] = blendRGB(frameBuffer_[i], 0x000000u, 210);
 
     const int per = BR_COLS * BR_ROWS, first = page * per;
     const int cw = W / BR_COLS, ch = (H - BR_HEAD) / BR_ROWS;
-    int pages = pool.empty() ? 1 : (int)((pool.size() + per - 1) / per);
+    int pages = view.empty() ? 1 : (int)((view.size() + per - 1) / per);
 
-    char head[64];
-    snprintf(head, sizeof head, "TEXTURES  PAGE %d/%d   WHEEL PAGE   CLICK PICK   ESC CLOSE",
-             page + 1, pages);
+    char head[96];
+    snprintf(head, sizeof head, "TEXTURES [%s]  PAGE %d/%d   F FILTER  WHEEL PAGE  CLICK PICK  ESC CLOSE",
+             filterName, page + 1, pages);
     drawText(6, 8, head, 0xFFf0e070, 2);
 
     for(int c = 0; c < per; ++c){
-        int idx = first + c;
-        if(idx >= (int)pool.size()) break;
+        if(first + c >= (int)view.size()) break;
+        int idx = view[first + c];                         // real pool index
         int col = c % BR_COLS, row = c / BR_COLS;
         int x0 = col*cw, y0 = BR_HEAD + row*ch;
         const Texture& t = pool[idx];

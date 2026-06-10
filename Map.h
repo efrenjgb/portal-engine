@@ -27,6 +27,7 @@ struct Sector {
     int                           floorTextureId = -1, ceilingTextureId = -1;
     bool                          ceilingIsSky = false;   // render ceiling as a parallax sky
     uint32_t floorColor = 0, ceilingColor = 0, wallColor = 0;
+    float                         light = 1.0f;           // sector brightness (1 = normal)
 };
 
 // A flat camera-facing billboard. z is the feet height; radius is half the

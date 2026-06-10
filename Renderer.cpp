@@ -46,6 +46,20 @@ static inline uint32_t packSurface(int sector, int kind, int wall){
     return ((uint32_t)kind << 28) | (((uint32_t)wall & 0xFFF) << 16) | ((uint32_t)sector & 0xFFFF);
 }
 
+// Brightness of the sector a point falls in (even-odd test) — to light sprites.
+static float sectorLightAt(const Map& m, Vec2 p){
+    for(const Sector& S : m.sectors){
+        bool in = false; int n = (int)S.vertices.size();
+        for(int i = 0, j = n-1; i < n; j = i++){
+            Vec2 a = S.vertices[i], b = S.vertices[j];
+            if(((a.y > p.y) != (b.y > p.y)) &&
+               (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) in = !in;
+        }
+        if(in) return S.light;
+    }
+    return 1.0f;
+}
+
 // ---- Renderer --------------------------------------------------------------
 Renderer::Renderer()
     : focalLength_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
@@ -75,12 +89,12 @@ const Texture* Renderer::imageFor(int texId) const {
 
 void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
                         int clipT, int clipB, float u, uint32_t base, float depth,
-                        [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId){
+                        [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId, float light){
     int y0 = std::max((int)yTopf, clipT);
     int y1 = std::min((int)yBotf, clipB);
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float span = yBotf - yTopf; if(span == 0) span = 1.0f;
-    float fade = distFade(depth);
+    float fade = distFade(depth) * light;
     float su = u / tx.uScale + tx.uOffset;                 // texture coord along the wall
     const Texture* img = imageFor(texId);
     for(int y = y0; y <= y1; ++y){
@@ -98,7 +112,7 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
 }
 
 void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base,
-                         [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId){
+                         [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId, float light){
     if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
     float h = pz - P.z;
     const Texture* img = imageFor(texId);
@@ -113,7 +127,7 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float wy = P.y + P.yawSin * tz - P.yawCos * txc;
         float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(sx, sy) : sampleTile(base, sx, sy);
-        frameBuffer_[idx]      = shade(c, distFade(tz));
+        frameBuffer_[idx]      = shade(c, distFade(tz) * light);
         depthBuffer_[idx]    = tz;
 #if EDITOR
         pickBuffer_[idx] = surf;
@@ -271,19 +285,19 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
 
                 uint32_t ceilSurf = packSurface(now.sector, SurfaceRef::Ceiling, 0);
                 if(sec.ceilingIsSky) skySpan(x, wt, cya-1, sec.ceilingColor, sec.ceilingTextureId, ceilSurf);
-                else            planeSpan(P, x, wt, cya-1, sec.ceiling, sec.ceilingColor, ceilSurf, sec.ceilingTexture, sec.ceilingTextureId);
-                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorColor, packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture, sec.floorTextureId);
+                else            planeSpan(P, x, wt, cya-1, sec.ceiling, sec.ceilingColor, ceilSurf, sec.ceilingTexture, sec.ceilingTextureId, sec.light);
+                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorColor, packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture, sec.floorTextureId, sec.light);
 
                 uint32_t wsurf = packSurface(now.sector, SurfaceRef::Wall, s);
                 const TextureTransform& wtx = sec.wallTextures[s];
                 int wid = sec.wallTextureIds[s];
                 if(nb < 0){
-                    wallSpan(x, yaf, ybf, sec.ceiling, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid);
+                    wallSpan(x, yaf, ybf, sec.ceiling, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, sec.light);
                 } else {
                     float naf = n1a + (n2a - n1a) * t;
                     float nbf = n1b + (n2b - n1b) * t;
-                    wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling,  wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid);
-                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid);
+                    wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling,  wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, sec.light);
+                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, sec.light);
                     // shrink the LIVE window (monotonically) for queued children
                     columnTop_[x] = std::max(columnTop_[x], clampi(std::max((int)yaf, (int)naf), wt, H-1));
                     columnBottom_[x] = std::min(columnBottom_[x], clampi(std::min((int)ybf, (int)nbf), 0,  wb));
@@ -330,7 +344,7 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
         int x0 = (int)(cx - wpx), x1 = (int)(cx + wpx);
         int yt = (int)ytopf,      yb = (int)yfeet;
         if(x1 <= x0 || yb <= yt) continue;
-        float fade = distFade(tz);
+        float fade = distFade(tz) * sectorLightAt(map, sp.position);   // lit by its sector
         const Texture* img = imageFor(sp.textureId);     // image billboard, or null = procedural
 
         for(int x = std::max(x0,0); x <= std::min(x1,W-1); ++x){

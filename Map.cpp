@@ -1,6 +1,6 @@
 // Text map loader/writer. Format (one record per line, '#' starts a comment):
 //   player <x> <y> <sector> <angle_deg>
-//   sector <floor> <ceil> <floorcol> <ceilcol> <wallcol>   colours = RRGGBB hex
+//   sector <floor> <ceil> <floorcol> <ceilcol> <wallcol> [light]   colours = RRGGBB hex
 //     wall <x> <y> <neighbour>     one per vertex, CCW; -1 = solid
 //   sprite <x> <y> <z> <radius> <height> <col>
 #include "Map.h"
@@ -29,9 +29,10 @@ std::optional<Map> loadMap(const std::string& path){
             m.playerStart = {x, y}; m.startSector = s; m.startAngle = a * PI_F / 180.0f;
             havePlayer = true;
         } else if(!strcmp(kw, "sector")){
-            float fl, ce; unsigned fc, cc, wc;
-            if(sscanf(p, "%*s %f %f %x %x %x", &fl, &ce, &fc, &cc, &wc) != 5){ fprintf(stderr, "map:%d bad sector\n", ln); fclose(f); return std::nullopt; }
-            Sector S; S.floor = fl; S.ceiling = ce;
+            float fl, ce, light = 1.0f; unsigned fc, cc, wc;
+            int got = sscanf(p, "%*s %f %f %x %x %x %f", &fl, &ce, &fc, &cc, &wc, &light);
+            if(got != 5 && got != 6){ fprintf(stderr, "map:%d bad sector\n", ln); fclose(f); return std::nullopt; }
+            Sector S; S.floor = fl; S.ceiling = ce; S.light = light;
             S.floorColor = 0xFF000000u|fc; S.ceilingColor = 0xFF000000u|cc; S.wallColor = 0xFF000000u|wc;
             m.sectors.push_back(std::move(S));
             cur = (int)m.sectors.size() - 1;
@@ -94,10 +95,12 @@ bool saveMap(const Map& m, const std::string& path){
     fprintf(f, "player %g %g %d %g\n\n",
             m.playerStart.x, m.playerStart.y, m.startSector, m.startAngle * 180.0f / PI_F);
     for(const Sector& s : m.sectors){
-        fprintf(f, "sector %g %g %06x %06x %06x\n", s.floor, s.ceiling,
+        fprintf(f, "sector %g %g %06x %06x %06x", s.floor, s.ceiling,
                 (unsigned)(s.floorColor & 0xFFFFFF),
                 (unsigned)(s.ceilingColor  & 0xFFFFFF),
                 (unsigned)(s.wallColor  & 0xFFFFFF));
+        if(s.light != 1.0f) fprintf(f, " %g", s.light);
+        fprintf(f, "\n");
         for(size_t w = 0; w < s.vertices.size(); ++w){
             const TextureTransform& tx = s.wallTextures[w];
             int id = s.wallTextureIds[w];

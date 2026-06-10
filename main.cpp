@@ -235,6 +235,7 @@ int main(int argc, char** argv){
     printf("   Tab           : toggle edit mode\n"
              "     T / G       :   raise / lower the aimed SPRITE's height, else the aimed sector's\n"
              "                       CEILING (look up) or FLOOR (look down)\n"
+             "     Y / H       :   brighten / darken the aimed sector (lighting)\n"
              "     [ / ]       :   shrink / grow texture on aimed surface\n"
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
@@ -636,6 +637,13 @@ int main(int argc, char** argv){
                         if(ks[SDL_SCANCODE_G]) t.floor = std::max(t.floor - rate, -8.0f);
                     }
                 }
+            }
+            // Y / H brighten / darken the aimed sector
+            if((ks[SDL_SCANCODE_Y] || ks[SDL_SCANCODE_H]) &&
+               aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
+                float& L = map.sectors[aim.sector].light;
+                if(ks[SDL_SCANCODE_Y]) L = std::min(L + 0.8f*dt, 1.8f);
+                if(ks[SDL_SCANCODE_H]) L = std::max(L - 0.8f*dt, 0.1f);
             }
 
             // texture wrap/pan still acts on the exact surface under the crosshair

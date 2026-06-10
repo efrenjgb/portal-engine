@@ -39,7 +39,8 @@ headlessly. (Originally this was a single C file; see the git history.)
 `Tab` toggles **edit mode**. `T`/`G` raise/lower a **sprite's height** when the
 crosshair is on one; otherwise they raise/lower the *ceiling* when you're looking up
 and the *floor* when you're looking down, acting on the sector under the crosshair
-(so you can edit a room you're looking into). The remaining keys act on the surface
+(so you can edit a room you're looking into). `Y`/`H` brighten/darken the aimed
+sector (per-sector lighting). The remaining keys act on the surface
 under the crosshair: `[`/`]` shrink/grow
 the texture, `;`/`'` pan it horizontally and `,`/`.` vertically, `N` cycles the
 surface's image texture, and `O` toggles a static sky backdrop on a ceiling.

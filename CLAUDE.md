@@ -79,6 +79,11 @@ Floors/ceilings are drawn per-pixel by inverse projection (`planeSpan`, "floor c
 Sky is a static screen-locked backdrop (`skySpan`, `ceilingIsSky` per sector). Sprites are
 billboards sorted far-to-near and z-tested (`drawSprites`).
 
+Each `Sector` has a `light` multiplier (1 = normal); wall/floor/ceiling spans multiply
+their distance fade by it, and sprites by their containing sector's light
+(`sectorLightAt`). `shade()` clamps channels so light > 1 brightens. Edit live with
+`Y`/`H` on the aimed sector; saved as an optional 6th field on the `sector` line.
+
 **Texture picker (EDITOR).** `B` in the 3D view opens `Renderer::drawTextureBrowser`,
 a modal thumbnail grid of the PNGs under `textures/duke/` (lazy-loaded into a browse
 pool on first open). Clicking a tile calls `ensureTexture` (appends it to `map.textures`

@@ -1,0 +1,17 @@
+# Tuned to this project's existing hand style: 4-space, attached braces,
+# no space before parens (if(...), f()), left-aligned pointers, compact
+# one-liners kept. Includes are NOT reordered (their order is deliberate).
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+PointerAlignment: Left
+SpaceBeforeParens: Never
+SortIncludes: false
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortBlocksOnASingleLine: Always
+AllowShortLoopsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortCaseLabelsOnASingleLine: true
+KeepEmptyLinesAtTheStartOfBlocks: false

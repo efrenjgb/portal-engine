@@ -1,110 +1,131 @@
 #include "Renderer.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cstdio>
 
 // ---- procedural textures (file-local) --------------------------------------
-static uint32_t sampleBrick(uint32_t base, float u, float v){     // brick walls
+static uint32_t sampleBrick(uint32_t base, float u, float v) { // brick walls
     const float bw = 1.0f, bh = 0.5f;
-    float vv  = v / bh;
-    int   row = (int)std::floor(vv);
-    float fu  = u / bw + ((row & 1) ? 0.5f : 0.0f);
-    float du  = fu - std::floor(fu);
-    float dv  = vv - std::floor(vv);
-    if(du < 0.06f || dv < 0.10f) return 0xFF2c2c2c;             // mortar
+    float vv = v / bh;
+    int row = (int)std::floor(vv);
+    float fu = u / bw + ((row & 1) ? 0.5f : 0.0f);
+    float du = fu - std::floor(fu);
+    float dv = vv - std::floor(vv);
+    if(du < 0.06f || dv < 0.10f) return 0xFF2c2c2c; // mortar
     unsigned id = (unsigned)((int)std::floor(fu) * 73856093) ^ (unsigned)(row * 19349663);
     id = id * 1103515245u + 12345u;
     float var = 0.82f + 0.18f * ((id >> 16) & 255) / 255.0f;
     return shade(base, var);
 }
 
-static uint32_t sampleTile(uint32_t base, float wx, float wy){   // tiled floors
+static uint32_t sampleTile(uint32_t base, float wx, float wy) { // tiled floors
     const float tile = 1.0f;
-    float fu = wx/tile - std::floor(wx/tile);
-    float fv = wy/tile - std::floor(wy/tile);
-    if(fu < 0.04f || fv < 0.04f) return 0xFF1c1c1c;            // grout
-    int checker = (((int)std::floor(wx/tile)) + ((int)std::floor(wy/tile))) & 1;
+    float fu = wx / tile - std::floor(wx / tile);
+    float fv = wy / tile - std::floor(wy / tile);
+    if(fu < 0.04f || fv < 0.04f) return 0xFF1c1c1c; // grout
+    int checker = (((int)std::floor(wx / tile)) + ((int)std::floor(wy / tile))) & 1;
     return shade(base, checker ? 1.0f : 0.80f);
 }
 
-static uint32_t sampleSprite(uint32_t base, float u, float v){    // barrel/drum
+static uint32_t sampleSprite(uint32_t base, float u, float v) { // barrel/drum
     float cu = (u - 0.5f) * 2.0f;
     const float r = 0.82f;
-    if(std::fabs(cu) > r || v < 0.0f || v > 1.0f) return 0;     // transparent
-    float round = std::sqrt(1.0f - (cu/r)*(cu/r));
+    if(std::fabs(cu) > r || v < 0.0f || v > 1.0f) return 0; // transparent
+    float round = std::sqrt(1.0f - (cu / r) * (cu / r));
     float f = 0.45f + 0.55f * round;
-    if(v < 0.06f || v > 0.95f ||
-       std::fabs(v-0.30f) < 0.04f || std::fabs(v-0.70f) < 0.04f) f *= 0.55f;
+    if(v < 0.06f || v > 0.95f || std::fabs(v - 0.30f) < 0.04f || std::fabs(v - 0.70f) < 0.04f)
+        f *= 0.55f;
     return shade(base, f);
 }
 
 // Pack a surface identity into one word: kind(4) | wall(12) | sector(16).
 // 0 == nothing (SurfaceRef::None), which is what the pick buffer clears to.
-static inline uint32_t packSurface(int sector, int kind, int wall){
+static inline uint32_t packSurface(int sector, int kind, int wall) {
     return ((uint32_t)kind << 28) | (((uint32_t)wall & 0xFFF) << 16) | ((uint32_t)sector & 0xFFFF);
 }
 
 // Brightness of the sector a point falls in (even-odd test) — to light sprites.
-static float sectorLightAt(const Map& m, Vec2 p){
-    for(const Sector& S : m.sectors){
-        bool in = false; int n = (int)S.vertices.size();
-        for(int i = 0, j = n-1; i < n; j = i++){
+static float sectorLightAt(const Map& m, Vec2 p) {
+    for(const Sector& S : m.sectors) {
+        bool in = false;
+        int n = (int)S.vertices.size();
+        for(int i = 0, j = n - 1; i < n; j = i++) {
             Vec2 a = S.vertices[i], b = S.vertices[j];
             if(((a.y > p.y) != (b.y > p.y)) &&
-               (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) in = !in;
+               (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x))
+                in = !in;
         }
-        if(in) return S.floorLight;     // a sprite rests on the floor
+        if(in) return S.floorLight; // a sprite rests on the floor
     }
     return 1.0f;
 }
 
 // ---- Renderer --------------------------------------------------------------
 Renderer::Renderer()
-    : focalLength_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
-      frameBuffer_(W*H), depthBuffer_(W*H),
+    : focalLength_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)), frameBuffer_(W * H),
+      depthBuffer_(W * H),
 #if EDITOR
-      pickBuffer_(W*H),
+      pickBuffer_(W * H),
 #endif
-      columnTop_(W), columnBottom_(W) {}
-
-void Renderer::clear(uint32_t bg){ std::fill(frameBuffer_.begin(), frameBuffer_.end(), bg); }
-
-void Renderer::putPixel(int x, int y, uint32_t c){
-    if(x >= 0 && x < W && y >= 0 && y < H) frameBuffer_[y*W + x] = c;
+      columnTop_(W), columnBottom_(W) {
 }
-void Renderer::drawLine(int x0, int y0, int x1, int y1, uint32_t c){
-    int dx = std::abs(x1-x0), sx = x0<x1?1:-1, dy = -std::abs(y1-y0), sy = y0<y1?1:-1, e = dx+dy;
-    for(;;){ putPixel(x0,y0,c); if(x0==x1 && y0==y1) break;
-        int e2 = 2*e; if(e2 >= dy){ e += dy; x0 += sx; } if(e2 <= dx){ e += dx; y0 += sy; } }
+
+void Renderer::clear(uint32_t bg) {
+    std::fill(frameBuffer_.begin(), frameBuffer_.end(), bg);
+}
+
+void Renderer::putPixel(int x, int y, uint32_t c) {
+    if(x >= 0 && x < W && y >= 0 && y < H) frameBuffer_[y * W + x] = c;
+}
+void Renderer::drawLine(int x0, int y0, int x1, int y1, uint32_t c) {
+    int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1, dy = -std::abs(y1 - y0),
+        sy = y0 < y1 ? 1 : -1, e = dx + dy;
+    for(;;) {
+        putPixel(x0, y0, c);
+        if(x0 == x1 && y0 == y1) break;
+        int e2 = 2 * e;
+        if(e2 >= dy) {
+            e += dy;
+            x0 += sx;
+        }
+        if(e2 <= dx) {
+            e += dx;
+            y0 += sy;
+        }
+    }
 }
 
 // Choose the image texture for an id, or nullptr to fall back to procedural.
 const Texture* Renderer::imageFor(int texId) const {
-    if(texId >= 0 && textures_ && texId < (int)textures_->size() && !(*textures_)[texId].pixels.empty())
+    if(texId >= 0 && textures_ && texId < (int)textures_->size() &&
+       !(*textures_)[texId].pixels.empty())
         return &(*textures_)[texId];
     return nullptr;
 }
 
-void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
-                        int clipT, int clipB, float u, uint32_t base, float depth,
-                        [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId, float light){
+void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot, int clipT,
+                        int clipB, float u, uint32_t base, float depth,
+                        [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId,
+                        float light) {
     int y0 = std::max((int)yTopf, clipT);
     int y1 = std::min((int)yBotf, clipB);
-    if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
-    float span = yBotf - yTopf; if(span == 0) span = 1.0f;
+    if(y0 < 0) y0 = 0;
+    if(y1 > H - 1) y1 = H - 1;
+    float span = yBotf - yTopf;
+    if(span == 0) span = 1.0f;
     float fade = distFade(depth) * light;
-    float su = u / tx.uScale + tx.uOffset;                 // texture coord along the wall
+    float su = u / tx.uScale + tx.uOffset; // texture coord along the wall
     const Texture* img = imageFor(texId);
-    for(int y = y0; y <= y1; ++y){
-        int idx = y*W + x;
-        if(depth >= depthBuffer_[idx]) continue;             // z-test: keep the nearer surface
+    for(int y = y0; y <= y1; ++y) {
+        int idx = y * W + x;
+        if(depth >= depthBuffer_[idx]) continue; // z-test: keep the nearer surface
         float fy = (y - yTopf) / span;
-        float v  = (vTop + (vBot - vTop) * fy) / tx.vScale + tx.vOffset;
+        float v = (vTop + (vBot - vTop) * fy) / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(su, v) : sampleBrick(base, su, v);
-        frameBuffer_[idx]      = shade(c, fade);
-        depthBuffer_[idx]    = depth;
+        frameBuffer_[idx] = shade(c, fade);
+        depthBuffer_[idx] = depth;
 #if EDITOR
         pickBuffer_[idx] = surf;
 #endif
@@ -112,23 +133,25 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
 }
 
 void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base,
-                         [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId, float light){
-    if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
+                         [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId,
+                         float light) {
+    if(y0 < 0) y0 = 0;
+    if(y1 > H - 1) y1 = H - 1;
     float h = pz - P.z;
     const Texture* img = imageFor(texId);
-    for(int y = y0; y <= y1; ++y){
+    for(int y = y0; y <= y1; ++y) {
         float denom = (H * 0.5f - y) - P.pitch * focalLength_;
         float tz = h * focalLength_ / denom;
         if(tz <= 0.0001f) continue;
-        int idx = y*W + x;
-        if(tz >= depthBuffer_[idx]) continue;                // z-test: keep the nearer surface
+        int idx = y * W + x;
+        if(tz >= depthBuffer_[idx]) continue; // z-test: keep the nearer surface
         float txc = (x - W * 0.5f) * tz / focalLength_;
         float wx = P.x + P.yawCos * tz + P.yawSin * txc;
         float wy = P.y + P.yawSin * tz - P.yawCos * txc;
         float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(sx, sy) : sampleTile(base, sx, sy);
-        frameBuffer_[idx]      = shade(c, distFade(tz) * light);
-        depthBuffer_[idx]    = tz;
+        frameBuffer_[idx] = shade(c, distFade(tz) * light);
+        depthBuffer_[idx] = tz;
 #if EDITOR
         pickBuffer_[idx] = surf;
 #endif
@@ -136,28 +159,32 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
 }
 
 // Static sky backdrop (Build-style): the texture is locked to the screen — it
-// doesn't move as you turn, look or walk. Just fills the ceiling region with the
-// image (or procedural pattern), sampled by screen position.
+// doesn't move as you turn, look or walk. Just fills the ceiling region with
+// the image (or procedural pattern), sampled by screen position.
 void Renderer::skySpan(int x, int y0, int y1, uint32_t base, int texId,
-                       [[maybe_unused]] uint32_t surf){
-    if(y0 < 0) y0 = 0; if(y1 > H-1) y1 = H-1;
-    const Texture* img = imageFor(texId);               // any assigned image, e.g. bricks
-    float su = (float)x / (float)W;                     // one copy across the screen
-    for(int y = y0; y <= y1; ++y){
-        int idx = y*W + x;
-        if(depthBuffer_[idx] < 1e9f) continue;                 // a nearer surface already won
+                       [[maybe_unused]] uint32_t surf) {
+    if(y0 < 0) y0 = 0;
+    if(y1 > H - 1) y1 = H - 1;
+    const Texture* img = imageFor(texId); // any assigned image, e.g. bricks
+    float su = (float)x / (float)W;       // one copy across the screen
+    for(int y = y0; y <= y1; ++y) {
+        int idx = y * W + x;
+        if(depthBuffer_[idx] < 1e9f) continue; // a nearer surface already won
         float sv = (float)y / (float)H;
         uint32_t c = img ? img->at(su, sv) : sampleTile(base, su * 8.0f, sv * 4.0f);
-        frameBuffer_[idx]      = c;                               // no distance fade: it's "far"
-        depthBuffer_[idx]    = 1e9f;                            // behind everything
+        frameBuffer_[idx] = c;    // no distance fade: it's "far"
+        depthBuffer_[idx] = 1e9f; // behind everything
 #if EDITOR
-        pickBuffer_[idx] = surf;                            // still picks as the ceiling
+        pickBuffer_[idx] = surf; // still picks as the ceiling
 #endif
     }
 }
 
-void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
-    for(int x = 0; x < W; ++x){ columnTop_[x] = 0; columnBottom_[x] = H-1; }
+void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
+    for(int x = 0; x < W; ++x) {
+        columnTop_[x] = 0;
+        columnBottom_[x] = H - 1;
+    }
     std::fill(depthBuffer_.begin(), depthBuffer_.end(), 1e9f);
 #if EDITOR
     std::fill(pickBuffer_.begin(), pickBuffer_.end(), 0u);
@@ -169,17 +196,21 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
     // so there's no flood back into the sector we came from.
     constexpr int MAX_VISITS = 12;
     std::vector<char> visits(map.sectors.size(), 0);
-    std::vector<int>  et(W), eb(W);   // per-sector-entry snapshot of the window
+    std::vector<int> et(W), eb(W); // per-sector-entry snapshot of the window
 
-    struct Item { int sector, sx1, sx2; };
+    struct Item {
+        int sector, sx1, sx2;
+    };
     Item queue[256];
     int head = 0, tail = 0, count = 0;
-    queue[head] = { playerSector, 0, W-1 };
-    head = (head+1) & 255; count++;
+    queue[head] = {playerSector, 0, W - 1};
+    head = (head + 1) & 255;
+    count++;
 
-    while(count > 0){
+    while(count > 0) {
         Item now = queue[tail];
-        tail = (tail+1) & 255; count--;
+        tail = (tail + 1) & 255;
+        count--;
         if(visits[now.sector] >= MAX_VISITS) continue;
         visits[now.sector]++;
         const Sector& sec = map.sectors[now.sector];
@@ -187,24 +218,28 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
 
         // Freeze the incoming window: this sector's own walls clamp to et/eb, so
         // a portal earlier in the list can't chop a solid wall that comes later
-        // (concave sectors). Portals still shrink the live columnTop_/columnBottom_, which the
-        // sectors we queue inherit; per-pixel depth sorts near vs far in-sector.
-        for(int x = now.sx1; x <= now.sx2; ++x){ et[x] = columnTop_[x]; eb[x] = columnBottom_[x]; }
+        // (concave sectors). Portals still shrink the live
+        // columnTop_/columnBottom_, which the sectors we queue inherit; per-pixel
+        // depth sorts near vs far in-sector.
+        for(int x = now.sx1; x <= now.sx2; ++x) {
+            et[x] = columnTop_[x];
+            eb[x] = columnBottom_[x];
+        }
 
-        for(int s = 0; s < n; ++s){
-            Vec2 a = sec.vertices[s], b = sec.vertices[(s+1) % n];
+        for(int s = 0; s < n; ++s) {
+            Vec2 a = sec.vertices[s], b = sec.vertices[(s + 1) % n];
 
             float vx1 = a.x - P.x, vy1 = a.y - P.y;
             float vx2 = b.x - P.x, vy2 = b.y - P.y;
-            float tx1 = vx1*P.yawSin - vy1*P.yawCos, tz1 = vx1*P.yawCos + vy1*P.yawSin;
-            float tx2 = vx2*P.yawSin - vy2*P.yawCos, tz2 = vx2*P.yawCos + vy2*P.yawSin;
+            float tx1 = vx1 * P.yawSin - vy1 * P.yawCos, tz1 = vx1 * P.yawCos + vy1 * P.yawSin;
+            float tx2 = vx2 * P.yawSin - vy2 * P.yawCos, tz2 = vx2 * P.yawCos + vy2 * P.yawSin;
 
-            float wlen = std::sqrt((b.x-a.x)*(b.x-a.x) + (b.y-a.y)*(b.y-a.y));
+            float wlen = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
             float u1 = 0.0f, u2 = wlen;
 
-            if(tz1 <= 0 && tz2 <= 0) continue;               // fully behind us
+            if(tz1 <= 0 && tz2 <= 0) continue; // fully behind us
 
-            float cross = tx1*tz2 - tx2*tz1;                 // back-face cull
+            float cross = tx1 * tz2 - tx2 * tz1; // back-face cull
             if(cross <= 0) continue;
 
             // Clip the wall to the view frustum in camera space: the near plane
@@ -214,7 +249,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             // correct side, so there's no need to keep the camera away from
             // portals. NEARZ must stay well above zero so 1/z and x stay sane.
             const float NEARZ = NEAR_PLANE;
-            const float slope = (W * 0.5f) / focalLength_;             // tan(FOV/2): screen-edge tx/tz
+            const float slope = (W * 0.5f) / focalLength_; // tan(FOV/2): screen-edge tx/tz
 
             // Near plane. If both ends are nearer than it but still in FRONT of the
             // camera, you're standing right on the wall — clamp both. But if one
@@ -223,143 +258,186 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
             // behind end forward to NEARZ would fabricate a full-screen wall.
             // (The normal straddle, where the front end is past NEARZ, is handled
             // by the slide branches below and keeps the visible part.)
-            if(tz1 < NEARZ && tz2 < NEARZ){
+            if(tz1 < NEARZ && tz2 < NEARZ) {
                 if(tz1 <= 0.0f || tz2 <= 0.0f) continue;
-                tz1 = NEARZ; tz2 = NEARZ;
-            } else if(tz1 < NEARZ){
-                float t = (NEARZ - tz1) / (tz2 - tz1); tx1 += (tx2-tx1)*t; u1 += (u2-u1)*t; tz1 = NEARZ;
-            } else if(tz2 < NEARZ){
-                float t = (NEARZ - tz2) / (tz1 - tz2); tx2 += (tx1-tx2)*t; u2 += (u1-u2)*t; tz2 = NEARZ;
+                tz1 = NEARZ;
+                tz2 = NEARZ;
+            } else if(tz1 < NEARZ) {
+                float t = (NEARZ - tz1) / (tz2 - tz1);
+                tx1 += (tx2 - tx1) * t;
+                u1 += (u2 - u1) * t;
+                tz1 = NEARZ;
+            } else if(tz2 < NEARZ) {
+                float t = (NEARZ - tz2) / (tz1 - tz2);
+                tx2 += (tx1 - tx2) * t;
+                u2 += (u1 - u2) * t;
+                tz2 = NEARZ;
             }
 
             // Side planes: clip the segment (tx,tz,u) to each half-space d >= 0.
             auto clipSide = [&](float d1, float d2) -> bool {
-                if(d1 < 0 && d2 < 0) return false;           // wholly outside the view
-                if(d1 < 0){      float t = d1/(d1-d2); tx1 += (tx2-tx1)*t; tz1 += (tz2-tz1)*t; u1 += (u2-u1)*t; }
-                else if(d2 < 0){ float t = d1/(d1-d2); tx2  = tx1 + (tx2-tx1)*t; tz2 = tz1 + (tz2-tz1)*t; u2 = u1 + (u2-u1)*t; }
+                if(d1 < 0 && d2 < 0) return false; // wholly outside the view
+                if(d1 < 0) {
+                    float t = d1 / (d1 - d2);
+                    tx1 += (tx2 - tx1) * t;
+                    tz1 += (tz2 - tz1) * t;
+                    u1 += (u2 - u1) * t;
+                } else if(d2 < 0) {
+                    float t = d1 / (d1 - d2);
+                    tx2 = tx1 + (tx2 - tx1) * t;
+                    tz2 = tz1 + (tz2 - tz1) * t;
+                    u2 = u1 + (u2 - u1) * t;
+                }
                 return true;
             };
-            if(!clipSide(tx1 + slope*tz1, tx2 + slope*tz2)) continue;   // left  edge
-            if(!clipSide(slope*tz1 - tx1, slope*tz2 - tx2)) continue;   // right edge
+            if(!clipSide(tx1 + slope * tz1, tx2 + slope * tz2)) continue; // left  edge
+            if(!clipSide(slope * tz1 - tx1, slope * tz2 - tx2)) continue; // right edge
 
             // project: screen_x = W/2 + tx*F/tz (not mirrored, now within [0,W])
             float xs1 = focalLength_ / tz1, xs2 = focalLength_ / tz2;
             float fx1 = W * 0.5f + tx1 * xs1;
             float fx2 = W * 0.5f + tx2 * xs2;
-            if(fx1 > fx2){                                    // front faces come out R-to-L
-                std::swap(fx1, fx2); std::swap(tz1, tz2); std::swap(xs1, xs2); std::swap(u1, u2);
+            if(fx1 > fx2) { // front faces come out R-to-L
+                std::swap(fx1, fx2);
+                std::swap(tz1, tz2);
+                std::swap(xs1, xs2);
+                std::swap(u1, u2);
             }
-            if(fx2 - fx1 < 0.01f) continue;                  // sub-pixel sliver
-            if(fx2 < now.sx1 || fx1 > now.sx2) continue;     // outside this sector's window
+            if(fx2 - fx1 < 0.01f) continue;              // sub-pixel sliver
+            if(fx2 < now.sx1 || fx1 > now.sx2) continue; // outside this sector's window
 
-            float yc = sec.ceiling  - P.z;
+            float yc = sec.ceiling - P.z;
             float yf = sec.floor - P.z;
-            int   nb = sec.neighbors[s];
+            int nb = sec.neighbors[s];
             float nyc = 0, nyf = 0;
-            if(nb >= 0){ nyc = map.sectors[nb].ceiling - P.z; nyf = map.sectors[nb].floor - P.z; }
+            if(nb >= 0) {
+                nyc = map.sectors[nb].ceiling - P.z;
+                nyf = map.sectors[nb].floor - P.z;
+            }
 
-            auto YPROJ = [&](float hgt, float tz, float sc){ return H/2.0f - (hgt + tz*P.pitch) * sc; };
-            float y1a = YPROJ(yc , tz1, xs1), y1b = YPROJ(yf , tz1, xs1);
-            float y2a = YPROJ(yc , tz2, xs2), y2b = YPROJ(yf , tz2, xs2);
+            auto YPROJ = [&](float hgt, float tz, float sc) {
+                return H / 2.0f - (hgt + tz * P.pitch) * sc;
+            };
+            float y1a = YPROJ(yc, tz1, xs1), y1b = YPROJ(yf, tz1, xs1);
+            float y2a = YPROJ(yc, tz2, xs2), y2b = YPROJ(yf, tz2, xs2);
             float n1a = YPROJ(nyc, tz1, xs1), n1b = YPROJ(nyf, tz1, xs1);
             float n2a = YPROJ(nyc, tz2, xs2), n2b = YPROJ(nyf, tz2, xs2);
 
-            float iz1 = 1.0f/tz1, iz2 = 1.0f/tz2;
-            float uoz1 = u1*iz1, uoz2 = u2*iz2;
+            float iz1 = 1.0f / tz1, iz2 = 1.0f / tz2;
+            float uoz1 = u1 * iz1, uoz2 = u2 * iz2;
 
             int beginx = std::max((int)fx1, now.sx1), endx = std::min((int)fx2, now.sx2);
-            float invspan = 1.0f / (fx2 - fx1);              // float span: subpixel-correct
+            float invspan = 1.0f / (fx2 - fx1); // float span: subpixel-correct
 
-            for(int x = beginx; x <= endx; ++x){
-                float t   = (x + 0.5f - fx1) * invspan;      // pixel centre vs true edge
-                float iz  = iz1 + (iz2 - iz1) * t;
+            for(int x = beginx; x <= endx; ++x) {
+                float t = (x + 0.5f - fx1) * invspan; // pixel centre vs true edge
+                float iz = iz1 + (iz2 - iz1) * t;
                 float dep = 1.0f / iz;
-                float u   = (uoz1 + (uoz2 - uoz1) * t) / iz;
+                float u = (uoz1 + (uoz2 - uoz1) * t) / iz;
 
                 float yaf = y1a + (y2a - y1a) * t;
                 float ybf = y1b + (y2b - y1b) * t;
-                int   wt  = et[x], wb = eb[x];      // frozen entry window
+                int wt = et[x], wb = eb[x]; // frozen entry window
 
                 int cya = clampi((int)yaf, wt, wb);
                 int cyb = clampi((int)ybf, wt, wb);
 
                 uint32_t ceilSurf = packSurface(now.sector, SurfaceRef::Ceiling, 0);
-                if(sec.ceilingIsSky) skySpan(x, wt, cya-1, sec.ceilingColor, sec.ceilingTextureId, ceilSurf);
-                else            planeSpan(P, x, wt, cya-1, sec.ceiling, sec.ceilingColor, ceilSurf, sec.ceilingTexture, sec.ceilingTextureId, sec.ceilingLight);
-                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorColor, packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture, sec.floorTextureId, sec.floorLight);
+                if(sec.ceilingIsSky)
+                    skySpan(x, wt, cya - 1, sec.ceilingColor, sec.ceilingTextureId, ceilSurf);
+                else
+                    planeSpan(P, x, wt, cya - 1, sec.ceiling, sec.ceilingColor, ceilSurf,
+                              sec.ceilingTexture, sec.ceilingTextureId, sec.ceilingLight);
+                planeSpan(P, x, cyb + 1, wb, sec.floor, sec.floorColor,
+                          packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture,
+                          sec.floorTextureId, sec.floorLight);
 
                 uint32_t wsurf = packSurface(now.sector, SurfaceRef::Wall, s);
                 const TextureTransform& wtx = sec.wallTextures[s];
                 int wid = sec.wallTextureIds[s];
                 float wlight = sec.wallLight[s];
-                if(nb < 0){
-                    wallSpan(x, yaf, ybf, sec.ceiling, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, wlight);
+                if(nb < 0) {
+                    wallSpan(x, yaf, ybf, sec.ceiling, sec.floor, wt, wb, u, sec.wallColor, dep,
+                             wsurf, wtx, wid, wlight);
                 } else {
                     float naf = n1a + (n2a - n1a) * t;
                     float nbf = n1b + (n2b - n1b) * t;
-                    wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling,  wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, wlight);
-                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, wlight);
+                    wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling, wt, wb, u,
+                             sec.wallColor, dep, wsurf, wtx, wid, wlight);
+                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u,
+                             sec.wallColor, dep, wsurf, wtx, wid, wlight);
                     // shrink the LIVE window (monotonically) for queued children
-                    columnTop_[x] = std::max(columnTop_[x], clampi(std::max((int)yaf, (int)naf), wt, H-1));
-                    columnBottom_[x] = std::min(columnBottom_[x], clampi(std::min((int)ybf, (int)nbf), 0,  wb));
+                    columnTop_[x] =
+                        std::max(columnTop_[x], clampi(std::max((int)yaf, (int)naf), wt, H - 1));
+                    columnBottom_[x] =
+                        std::min(columnBottom_[x], clampi(std::min((int)ybf, (int)nbf), 0, wb));
                 }
             }
 
-            if(nb >= 0 && endx >= beginx && visits[nb] < MAX_VISITS && count < 255){
-                queue[head] = { nb, beginx, endx };
-                head = (head+1) & 255; count++;
+            if(nb >= 0 && endx >= beginx && visits[nb] < MAX_VISITS && count < 255) {
+                queue[head] = {nb, beginx, endx};
+                head = (head + 1) & 255;
+                count++;
             }
         }
     }
 }
 
-void Renderer::drawSprites(const Map& map, const Camera& P){
+void Renderer::drawSprites(const Map& map, const Camera& P) {
     int ns = (int)map.sprites.size();
     std::vector<int> order(ns);
     std::vector<float> depth(ns);
-    for(int i = 0; i < ns; ++i){
+    for(int i = 0; i < ns; ++i) {
         float rx = map.sprites[i].position.x - P.x, ry = map.sprites[i].position.y - P.y;
-        depth[i] = rx*P.yawCos + ry*P.yawSin;
+        depth[i] = rx * P.yawCos + ry * P.yawSin;
         order[i] = i;
     }
-    for(int i = 1; i < ns; ++i){                  // insertion sort, far to near
-        int k = order[i]; float d = depth[k]; int j = i-1;
-        while(j >= 0 && depth[order[j]] < d){ order[j+1] = order[j]; --j; }
-        order[j+1] = k;
+    for(int i = 1; i < ns; ++i) { // insertion sort, far to near
+        int k = order[i];
+        float d = depth[k];
+        int j = i - 1;
+        while(j >= 0 && depth[order[j]] < d) {
+            order[j + 1] = order[j];
+            --j;
+        }
+        order[j + 1] = k;
     }
 
-    for(int o = 0; o < ns; ++o){
+    for(int o = 0; o < ns; ++o) {
         int si = order[o];
         const Sprite& sp = map.sprites[si];
         float rx = sp.position.x - P.x, ry = sp.position.y - P.y;
-        float tz = rx*P.yawCos + ry*P.yawSin;
+        float tz = rx * P.yawCos + ry * P.yawSin;
         if(tz < 0.2f) continue;
-        float tx = rx*P.yawSin - ry*P.yawCos;
+        float tx = rx * P.yawSin - ry * P.yawCos;
 
-        float sc  = focalLength_ / tz;
-        float cx  = W*0.5f + tx * sc;
-        float yfeet = H*0.5f - ((sp.z             - P.z) + tz*P.pitch) * sc;
-        float ytopf = H*0.5f - ((sp.z + sp.height - P.z) + tz*P.pitch) * sc;
+        float sc = focalLength_ / tz;
+        float cx = W * 0.5f + tx * sc;
+        float yfeet = H * 0.5f - ((sp.z - P.z) + tz * P.pitch) * sc;
+        float ytopf = H * 0.5f - ((sp.z + sp.height - P.z) + tz * P.pitch) * sc;
         float wpx = sp.radius * sc;
 
         int x0 = (int)(cx - wpx), x1 = (int)(cx + wpx);
-        int yt = (int)ytopf,      yb = (int)yfeet;
+        int yt = (int)ytopf, yb = (int)yfeet;
         if(x1 <= x0 || yb <= yt) continue;
-        float fade = distFade(tz) * sectorLightAt(map, sp.position);   // lit by its sector
-        const Texture* img = imageFor(sp.textureId);     // image billboard, or null = procedural
+        float fade = distFade(tz) * sectorLightAt(map, sp.position); // lit by its sector
+        const Texture* img = imageFor(sp.textureId); // image billboard, or null = procedural
 
-        for(int x = std::max(x0,0); x <= std::min(x1,W-1); ++x){
+        for(int x = std::max(x0, 0); x <= std::min(x1, W - 1); ++x) {
             float uu = (x - x0) / (float)(x1 - x0);
-            for(int y = std::max(yt,0); y <= std::min(yb,H-1); ++y){
-                if(tz >= depthBuffer_[y*W + x]) continue;
+            for(int y = std::max(yt, 0); y <= std::min(yb, H - 1); ++y) {
+                if(tz >= depthBuffer_[y * W + x]) continue;
                 float vv = (y - yt) / (float)(yb - yt);
                 uint32_t c;
-                if(img){ uint32_t t = img->at(uu, vv); c = (t >> 24) < 128 ? 0 : (t & 0xFFFFFF); }
-                else     c = sampleSprite(sp.color, uu, vv);
-                if(c){
-                    frameBuffer_[y*W + x] = shade(c, fade);
+                if(img) {
+                    uint32_t t = img->at(uu, vv);
+                    c = (t >> 24) < 128 ? 0 : (t & 0xFFFFFF);
+                } else c = sampleSprite(sp.color, uu, vv);
+                if(c) {
+                    frameBuffer_[y * W + x] = shade(c, fade);
 #if EDITOR
-                    pickBuffer_[y*W + x] = ((uint32_t)SurfaceRef::Sprite << 28) | ((uint32_t)si & 0xFFFF);
+                    pickBuffer_[y * W + x] =
+                        ((uint32_t)SurfaceRef::Sprite << 28) | ((uint32_t)si & 0xFFFF);
 #endif
                 }
             }
@@ -367,106 +445,113 @@ void Renderer::drawSprites(const Map& map, const Camera& P){
     }
 }
 
-void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim,
-                           Vec2 start, float startAngle){
-    const float sc = 7.0f; const int ox = 14, oy = 14, maxy = 20;
-    auto MX = [&](float wx){ return ox + (int)(wx * sc); };
-    auto MY = [&](float wy){ return oy + (int)((maxy - wy) * sc); };   // north up
+void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim, Vec2 start,
+                           float startAngle) {
+    const float sc = 7.0f;
+    const int ox = 14, oy = 14, maxy = 20;
+    auto MX = [&](float wx) { return ox + (int)(wx * sc); };
+    auto MY = [&](float wy) { return oy + (int)((maxy - wy) * sc); }; // north up
 
-    for(int i = 0; i < (int)map.sectors.size(); ++i){
+    for(int i = 0; i < (int)map.sectors.size(); ++i) {
         const Sector& s = map.sectors[i];
         int np = (int)s.vertices.size();
-        for(int w = 0; w < np; ++w){
-            Vec2 a = s.vertices[w], b = s.vertices[(w+1) % np];
+        for(int w = 0; w < np; ++w) {
+            Vec2 a = s.vertices[w], b = s.vertices[(w + 1) % np];
             uint32_t c = (s.neighbors[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
-            if(i == aim.sector) c = 0xFFff30ff;                              // aimed sector
+            if(i == aim.sector) c = 0xFFff30ff; // aimed sector
             if(aim.kind == SurfaceRef::Wall && i == aim.sector && w == aim.wall)
-                c = 0xFFffe020;                                             // aimed wall = yellow
+                c = 0xFFffe020; // aimed wall = yellow
             drawLine(MX(a.x), MY(a.y), MX(b.x), MY(b.y), c);
         }
     }
-    for(const Sprite& s : map.sprites){
+    for(const Sprite& s : map.sprites) {
         int sx = MX(s.position.x), sy = MY(s.position.y);
-        for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putPixel(sx+dx, sy+dy, s.color);
+        for(int dx = -1; dx <= 1; dx++)
+            for(int dy = -1; dy <= 1; dy++) putPixel(sx + dx, sy + dy, s.color);
     }
-    {   // stored player start = cyan
+    { // stored player start = cyan
         int sx = MX(start.x), sy = MY(start.y);
-        drawLine(sx, sy, MX(start.x + std::cos(startAngle)*1.2f),
-                       MY(start.y + std::sin(startAngle)*1.2f), 0xFF20e0ff);
+        drawLine(sx, sy, MX(start.x + std::cos(startAngle) * 1.2f),
+                 MY(start.y + std::sin(startAngle) * 1.2f), 0xFF20e0ff);
         putPixel(sx, sy, 0xFF20e0ff);
     }
     int px = MX(P.x), py = MY(P.y);
-    drawLine(px, py, MX(P.x + P.yawCos*1.6f), MY(P.y + P.yawSin*1.6f), 0xFFffd040);
-    for(int dx=-1;dx<=1;dx++) for(int dy=-1;dy<=1;dy++) putPixel(px+dx, py+dy, 0xFFff4040);
+    drawLine(px, py, MX(P.x + P.yawCos * 1.6f), MY(P.y + P.yawSin * 1.6f), 0xFFffd040);
+    for(int dx = -1; dx <= 1; dx++)
+        for(int dy = -1; dy <= 1; dy++) putPixel(px + dx, py + dy, 0xFFff4040);
 }
 
-void Renderer::crosshair(uint32_t col){
-    for(int i = -5; i <= 5; ++i){ putPixel(W/2+i, H/2, col); putPixel(W/2, H/2+i, col); }
+void Renderer::crosshair(uint32_t col) {
+    for(int i = -5; i <= 5; ++i) {
+        putPixel(W / 2 + i, H / 2, col);
+        putPixel(W / 2, H / 2 + i, col);
+    }
 }
 
 // ---- 5x7 bitmap font (file-local) ------------------------------------------
-// Each glyph is 7 rows; the low 5 bits of each row are columns, bit 4 = leftmost.
-// FONT entries are in the order of FONT_CHARS below; unknown chars render blank.
+// Each glyph is 7 rows; the low 5 bits of each row are columns, bit 4 =
+// leftmost. FONT entries are in the order of FONT_CHARS below; unknown chars
+// render blank.
 static const char FONT_CHARS[] = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ:.-/%";
 static const uint8_t FONT[][7] = {
-    {0,0,0,0,0,0,0},                                              // space
-    {0b01110,0b10001,0b10011,0b10101,0b11001,0b10001,0b01110},   // 0
-    {0b00100,0b01100,0b00100,0b00100,0b00100,0b00100,0b01110},   // 1
-    {0b01110,0b10001,0b00001,0b00010,0b00100,0b01000,0b11111},   // 2
-    {0b11111,0b00010,0b00100,0b00010,0b00001,0b10001,0b01110},   // 3
-    {0b00010,0b00110,0b01010,0b10010,0b11111,0b00010,0b00010},   // 4
-    {0b11111,0b10000,0b11110,0b00001,0b00001,0b10001,0b01110},   // 5
-    {0b00110,0b01000,0b10000,0b11110,0b10001,0b10001,0b01110},   // 6
-    {0b11111,0b00001,0b00010,0b00100,0b01000,0b01000,0b01000},   // 7
-    {0b01110,0b10001,0b10001,0b01110,0b10001,0b10001,0b01110},   // 8
-    {0b01110,0b10001,0b10001,0b01111,0b00001,0b00010,0b01100},   // 9
-    {0b01110,0b10001,0b10001,0b11111,0b10001,0b10001,0b10001},   // A
-    {0b11110,0b10001,0b10001,0b11110,0b10001,0b10001,0b11110},   // B
-    {0b01110,0b10001,0b10000,0b10000,0b10000,0b10001,0b01110},   // C
-    {0b11100,0b10010,0b10001,0b10001,0b10001,0b10010,0b11100},   // D
-    {0b11111,0b10000,0b10000,0b11110,0b10000,0b10000,0b11111},   // E
-    {0b11111,0b10000,0b10000,0b11110,0b10000,0b10000,0b10000},   // F
-    {0b01110,0b10001,0b10000,0b10111,0b10001,0b10001,0b01111},   // G
-    {0b10001,0b10001,0b10001,0b11111,0b10001,0b10001,0b10001},   // H
-    {0b01110,0b00100,0b00100,0b00100,0b00100,0b00100,0b01110},   // I
-    {0b00111,0b00010,0b00010,0b00010,0b00010,0b10010,0b01100},   // J
-    {0b10001,0b10010,0b10100,0b11000,0b10100,0b10010,0b10001},   // K
-    {0b10000,0b10000,0b10000,0b10000,0b10000,0b10000,0b11111},   // L
-    {0b10001,0b11011,0b10101,0b10101,0b10001,0b10001,0b10001},   // M
-    {0b10001,0b11001,0b10101,0b10011,0b10001,0b10001,0b10001},   // N
-    {0b01110,0b10001,0b10001,0b10001,0b10001,0b10001,0b01110},   // O
-    {0b11110,0b10001,0b10001,0b11110,0b10000,0b10000,0b10000},   // P
-    {0b01110,0b10001,0b10001,0b10001,0b10101,0b10010,0b01101},   // Q
-    {0b11110,0b10001,0b10001,0b11110,0b10100,0b10010,0b10001},   // R
-    {0b01111,0b10000,0b10000,0b01110,0b00001,0b00001,0b11110},   // S
-    {0b11111,0b00100,0b00100,0b00100,0b00100,0b00100,0b00100},   // T
-    {0b10001,0b10001,0b10001,0b10001,0b10001,0b10001,0b01110},   // U
-    {0b10001,0b10001,0b10001,0b10001,0b10001,0b01010,0b00100},   // V
-    {0b10001,0b10001,0b10001,0b10101,0b10101,0b11011,0b10001},   // W
-    {0b10001,0b10001,0b01010,0b00100,0b01010,0b10001,0b10001},   // X
-    {0b10001,0b10001,0b01010,0b00100,0b00100,0b00100,0b00100},   // Y
-    {0b11111,0b00001,0b00010,0b00100,0b01000,0b10000,0b11111},   // Z
-    {0b00000,0b00100,0b00100,0b00000,0b00100,0b00100,0b00000},   // :
-    {0b00000,0b00000,0b00000,0b00000,0b00000,0b01100,0b01100},   // .
-    {0b00000,0b00000,0b00000,0b11111,0b00000,0b00000,0b00000},   // -
-    {0b00001,0b00010,0b00010,0b00100,0b01000,0b01000,0b10000},   // /
-    {0b11001,0b11010,0b00010,0b00100,0b01000,0b01011,0b10011},   // %
+    {0, 0, 0, 0, 0, 0, 0},                                           // space
+    {0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110}, // 0
+    {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110}, // 1
+    {0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111}, // 2
+    {0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110}, // 3
+    {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010}, // 4
+    {0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110}, // 5
+    {0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110}, // 6
+    {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000}, // 7
+    {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110}, // 8
+    {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100}, // 9
+    {0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001}, // A
+    {0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110}, // B
+    {0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110}, // C
+    {0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100}, // D
+    {0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111}, // E
+    {0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000}, // F
+    {0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111}, // G
+    {0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001}, // H
+    {0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110}, // I
+    {0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100}, // J
+    {0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001}, // K
+    {0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111}, // L
+    {0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001}, // M
+    {0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001}, // N
+    {0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110}, // O
+    {0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000}, // P
+    {0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101}, // Q
+    {0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001}, // R
+    {0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110}, // S
+    {0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100}, // T
+    {0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110}, // U
+    {0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100}, // V
+    {0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001}, // W
+    {0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001}, // X
+    {0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100}, // Y
+    {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111}, // Z
+    {0b00000, 0b00100, 0b00100, 0b00000, 0b00100, 0b00100, 0b00000}, // :
+    {0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100}, // .
+    {0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000}, // -
+    {0b00001, 0b00010, 0b00010, 0b00100, 0b01000, 0b01000, 0b10000}, // /
+    {0b11001, 0b11010, 0b00010, 0b00100, 0b01000, 0b01011, 0b10011}, // %
 };
 
 // Alpha-blend src over dst by a (0..255); a==255 is plain copy.
-static inline uint32_t blendRGB(uint32_t dst, uint32_t src, uint8_t a){
-    uint32_t r = ((src>>16 & 255)*a + (dst>>16 & 255)*(255-a)) / 255;
-    uint32_t g = ((src>>8  & 255)*a + (dst>>8  & 255)*(255-a)) / 255;
-    uint32_t b = ((src     & 255)*a + (dst     & 255)*(255-a)) / 255;
-    return 0xFF000000u | (r<<16) | (g<<8) | b;
+static inline uint32_t blendRGB(uint32_t dst, uint32_t src, uint8_t a) {
+    uint32_t r = ((src >> 16 & 255) * a + (dst >> 16 & 255) * (255 - a)) / 255;
+    uint32_t g = ((src >> 8 & 255) * a + (dst >> 8 & 255) * (255 - a)) / 255;
+    uint32_t b = ((src & 255) * a + (dst & 255) * (255 - a)) / 255;
+    return 0xFF000000u | (r << 16) | (g << 8) | b;
 }
 
-int Renderer::drawText(int x, int y, const char* text, uint32_t color, int scale){
-    uint8_t alpha = (uint8_t)(color >> 24);                 // top byte = opacity
+int Renderer::drawText(int x, int y, const char* text, uint32_t color, int scale) {
+    uint8_t alpha = (uint8_t)(color >> 24); // top byte = opacity
     int cx = x;
-    for(const char* p = text; *p; ++p){
+    for(const char* p = text; *p; ++p) {
         char c = *p;
-        if(c >= 'a' && c <= 'z') c -= 32;                  // uppercase
+        if(c >= 'a' && c <= 'z') c -= 32; // uppercase
         const char* hit = std::strchr(FONT_CHARS, c);
         int idx = (hit && c) ? (int)(hit - FONT_CHARS) : 0;
         const uint8_t* g = FONT[idx];
@@ -474,20 +559,20 @@ int Renderer::drawText(int x, int y, const char* text, uint32_t color, int scale
             for(int col = 0; col < 5; ++col)
                 if(g[r] & (1 << (4 - col)))
                     for(int sy = 0; sy < scale; ++sy)
-                        for(int sx = 0; sx < scale; ++sx){
-                            int px = cx + col*scale + sx, py = y + r*scale + sy;
+                        for(int sx = 0; sx < scale; ++sx) {
+                            int px = cx + col * scale + sx, py = y + r * scale + sy;
                             if(px < 0 || px >= W || py < 0 || py >= H) continue;
-                            uint32_t& d = frameBuffer_[(size_t)py*W + px];
+                            uint32_t& d = frameBuffer_[(size_t)py * W + px];
                             d = (alpha == 255) ? (0xFF000000u | color) : blendRGB(d, color, alpha);
                         }
-        cx += 6 * scale;                                   // 5px glyph + 1px gap
+        cx += 6 * scale; // 5px glyph + 1px gap
     }
     return cx - x;
 }
 
 void Renderer::drawTextureBrowser(const std::vector<Texture>& pool, const std::vector<int>& view,
-                                  int page, int hoverCell, const char* filterName){
-    for(int i = 0; i < W*H; ++i)                            // dim the scene behind
+                                  int page, int hoverCell, const char* filterName) {
+    for(int i = 0; i < W * H; ++i) // dim the scene behind
         frameBuffer_[i] = blendRGB(frameBuffer_[i], 0x000000u, 210);
 
     const int per = BR_COLS * BR_ROWS, first = page * per;
@@ -495,113 +580,132 @@ void Renderer::drawTextureBrowser(const std::vector<Texture>& pool, const std::v
     int pages = view.empty() ? 1 : (int)((view.size() + per - 1) / per);
 
     char head[96];
-    snprintf(head, sizeof head, "TEXTURES [%s]  PAGE %d/%d   F FILTER  WHEEL PAGE  CLICK PICK  ESC CLOSE",
-             filterName, page + 1, pages);
+    snprintf(head, sizeof head,
+             "TEXTURES [%s]  PAGE %d/%d   F FILTER  WHEEL PAGE  CLICK PICK  ESC CLOSE", filterName,
+             page + 1, pages);
     drawText(6, 8, head, 0xFFf0e070, 2);
 
-    for(int c = 0; c < per; ++c){
+    for(int c = 0; c < per; ++c) {
         if(first + c >= (int)view.size()) break;
-        int idx = view[first + c];                         // real pool index
+        int idx = view[first + c]; // real pool index
         int col = c % BR_COLS, row = c / BR_COLS;
-        int x0 = col*cw, y0 = BR_HEAD + row*ch;
+        int x0 = col * cw, y0 = BR_HEAD + row * ch;
         const Texture& t = pool[idx];
-        int pad = 6, iw = cw - 2*pad, ih = ch - 2*pad - 10;     // 10px reserved for the label
-        for(int yy = 0; yy < ih; ++yy){
+        int pad = 6, iw = cw - 2 * pad,
+            ih = ch - 2 * pad - 10; // 10px reserved for the label
+        for(int yy = 0; yy < ih; ++yy) {
             int sy = t.height ? yy * t.height / ih : 0;
-            for(int xx = 0; xx < iw; ++xx){
+            for(int xx = 0; xx < iw; ++xx) {
                 int sx = t.width ? xx * t.width / iw : 0;
-                uint32_t px = t.pixels.empty() ? 0xFF303030u : t.pixels[(size_t)sy*t.width + sx];
-                if((px >> 24) < 128) continue;                  // let backdrop show through
-                frameBuffer_[(size_t)(y0+pad+yy)*W + (x0+pad+xx)] = 0xFF000000u | (px & 0xFFFFFF);
+                uint32_t px = t.pixels.empty() ? 0xFF303030u : t.pixels[(size_t)sy * t.width + sx];
+                if((px >> 24) < 128) continue; // let backdrop show through
+                frameBuffer_[(size_t)(y0 + pad + yy) * W + (x0 + pad + xx)] =
+                    0xFF000000u | (px & 0xFFFFFF);
             }
         }
-        char lab[16]; snprintf(lab, sizeof lab, "%d", idx);
-        drawText(x0+pad, y0+ch-9, lab, 0xFFb8c0cc, 1);
-        if(c == hoverCell){                                     // highlight border
-            for(int xx = x0; xx < x0+cw; ++xx){ putPixel(xx, y0, 0xFFffffff); putPixel(xx, y0+ch-1, 0xFFffffff); }
-            for(int yy = y0; yy < y0+ch; ++yy){ putPixel(x0, yy, 0xFFffffff); putPixel(x0+cw-1, yy, 0xFFffffff); }
+        char lab[16];
+        snprintf(lab, sizeof lab, "%d", idx);
+        drawText(x0 + pad, y0 + ch - 9, lab, 0xFFb8c0cc, 1);
+        if(c == hoverCell) { // highlight border
+            for(int xx = x0; xx < x0 + cw; ++xx) {
+                putPixel(xx, y0, 0xFFffffff);
+                putPixel(xx, y0 + ch - 1, 0xFFffffff);
+            }
+            for(int yy = y0; yy < y0 + ch; ++yy) {
+                putPixel(x0, yy, 0xFFffffff);
+                putPixel(x0 + cw - 1, yy, 0xFFffffff);
+            }
         }
     }
 }
 
-void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy,
-                             int hovSec, int hovVert, int hwSec, int hwWall,
-                             Vec2 pp, float pa, int hovSprite){
-    auto SX = [&](float wx){ return (int)(ox + wx*sc); };
-    auto SY = [&](float wy){ return (int)(oy - wy*sc); };
+void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy, int hovSec, int hovVert,
+                             int hwSec, int hwWall, Vec2 pp, float pa, int hovSprite) {
+    auto SX = [&](float wx) { return (int)(ox + wx * sc); };
+    auto SY = [&](float wy) { return (int)(oy - wy * sc); };
 
     // faint unit grid (only when it won't be a dense mush)
-    if(sc >= 4.0f){
-        int gx0 = (int)std::floor((0 - ox)/sc),     gx1 = (int)std::ceil((W - ox)/sc);
-        int gy0 = (int)std::floor((oy - (H-1))/sc), gy1 = (int)std::ceil((oy - 0)/sc);
-        if(gx1 - gx0 < 400) for(int gx = gx0; gx <= gx1; ++gx) drawLine(SX((float)gx), 0, SX((float)gx), H-1, 0xFF15181f);
-        if(gy1 - gy0 < 400) for(int gy = gy0; gy <= gy1; ++gy) drawLine(0, SY((float)gy), W-1, SY((float)gy), 0xFF15181f);
+    if(sc >= 4.0f) {
+        int gx0 = (int)std::floor((0 - ox) / sc), gx1 = (int)std::ceil((W - ox) / sc);
+        int gy0 = (int)std::floor((oy - (H - 1)) / sc), gy1 = (int)std::ceil((oy - 0) / sc);
+        if(gx1 - gx0 < 400)
+            for(int gx = gx0; gx <= gx1; ++gx)
+                drawLine(SX((float)gx), 0, SX((float)gx), H - 1, 0xFF15181f);
+        if(gy1 - gy0 < 400)
+            for(int gy = gy0; gy <= gy1; ++gy)
+                drawLine(0, SY((float)gy), W - 1, SY((float)gy), 0xFF15181f);
     }
 
     // walls (portal = green, solid = grey; aimed wall = yellow)
-    for(int s = 0; s < (int)m.sectors.size(); ++s){
+    for(int s = 0; s < (int)m.sectors.size(); ++s) {
         const Sector& S = m.sectors[s];
         int n = (int)S.vertices.size();
-        for(int w = 0; w < n; ++w){
-            Vec2 a = S.vertices[w], b = S.vertices[(w+1)%n];
+        for(int w = 0; w < n; ++w) {
+            Vec2 a = S.vertices[w], b = S.vertices[(w + 1) % n];
             uint32_t c = (S.neighbors[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
             if(s == hwSec && w == hwWall) c = 0xFFffe020;
             drawLine(SX(a.x), SY(a.y), SX(b.x), SY(b.y), c);
         }
     }
     // vertices (hovered one is a bigger yellow box)
-    for(int s = 0; s < (int)m.sectors.size(); ++s){
+    for(int s = 0; s < (int)m.sectors.size(); ++s) {
         const Sector& S = m.sectors[s];
-        for(int i = 0; i < (int)S.vertices.size(); ++i){
+        for(int i = 0; i < (int)S.vertices.size(); ++i) {
             int vx = SX(S.vertices[i].x), vy = SY(S.vertices[i].y);
             bool hot = (s == hovSec && i == hovVert);
             uint32_t c = hot ? 0xFFffe020 : 0xFFdfe6f0;
             int r = hot ? 3 : 2;
-            for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putPixel(vx+dx, vy+dy, c);
+            for(int dy = -r; dy <= r; ++dy)
+                for(int dx = -r; dx <= r; ++dx) putPixel(vx + dx, vy + dy, c);
         }
     }
     // sprites (diamonds in their own colour, so they read as distinct from the
     // square vertices; the hovered/dragged one gets a white ring)
-    for(int i = 0; i < (int)m.sprites.size(); ++i){
+    for(int i = 0; i < (int)m.sprites.size(); ++i) {
         int sx = SX(m.sprites[i].position.x), sy = SY(m.sprites[i].position.y);
         uint32_t c = m.sprites[i].color | 0xFF000000u;
         int r = 3;
-        for(int dy=-r-1; dy<=r+1; ++dy) for(int dx=-r-1; dx<=r+1; ++dx){
-            int man = std::abs(dx) + std::abs(dy);
-            if(man <= r)      putPixel(sx+dx, sy+dy, c);          // filled diamond
-            else if(man == r+1) putPixel(sx+dx, sy+dy, 0xFF101014); // dark outline
-        }
+        for(int dy = -r - 1; dy <= r + 1; ++dy)
+            for(int dx = -r - 1; dx <= r + 1; ++dx) {
+                int man = std::abs(dx) + std::abs(dy);
+                if(man <= r) putPixel(sx + dx, sy + dy, c);                   // filled diamond
+                else if(man == r + 1) putPixel(sx + dx, sy + dy, 0xFF101014); // dark outline
+            }
         if(i == hovSprite)
-            for(int k = 0; k < 16; ++k){
+            for(int k = 0; k < 16; ++k) {
                 float t = k * (PI_F / 8.0f);
-                putPixel(sx + (int)(std::cos(t)*(r+3)), sy + (int)(std::sin(t)*(r+3)), 0xFFffffff);
+                putPixel(sx + (int)(std::cos(t) * (r + 3)), sy + (int)(std::sin(t) * (r + 3)),
+                         0xFFffffff);
             }
     }
 
     // player marker + facing
     int px = SX(pp.x), py = SY(pp.y);
-    drawLine(px, py, SX(pp.x + std::cos(pa)*1.6f), SY(pp.y + std::sin(pa)*1.6f), 0xFFffd040);
-    for(int dy=-2; dy<=2; ++dy) for(int dx=-2; dx<=2; ++dx) putPixel(px+dx, py+dy, 0xFFff4040);
+    drawLine(px, py, SX(pp.x + std::cos(pa) * 1.6f), SY(pp.y + std::sin(pa) * 1.6f), 0xFFffd040);
+    for(int dy = -2; dy <= 2; ++dy)
+        for(int dx = -2; dx <= 2; ++dx) putPixel(px + dx, py + dy, 0xFFff4040);
 }
 
-void Renderer::drawPendingSector(const std::vector<Vec2>& pts, float sc, float ox, float oy,
-                                 int mx, int my){
+void Renderer::drawPendingSector(const std::vector<Vec2>& pts, float sc, float ox, float oy, int mx,
+                                 int my) {
     if(pts.empty()) return;
-    auto SX = [&](float wx){ return (int)(ox + wx*sc); };
-    auto SY = [&](float wy){ return (int)(oy - wy*sc); };
+    auto SX = [&](float wx) { return (int)(ox + wx * sc); };
+    auto SY = [&](float wy) { return (int)(oy - wy * sc); };
     const uint32_t edge = 0xFFffd24a, band = 0xFF8a7320;
 
-    for(size_t i = 0; i + 1 < pts.size(); ++i)               // committed edges
-        drawLine(SX(pts[i].x), SY(pts[i].y), SX(pts[i+1].x), SY(pts[i+1].y), edge);
-    drawLine(SX(pts.back().x), SY(pts.back().y), mx, my, band); // rubber-band to cursor
-    if(pts.size() >= 2)                                       // hint of the closing edge
+    for(size_t i = 0; i + 1 < pts.size(); ++i) // committed edges
+        drawLine(SX(pts[i].x), SY(pts[i].y), SX(pts[i + 1].x), SY(pts[i + 1].y), edge);
+    drawLine(SX(pts.back().x), SY(pts.back().y), mx, my,
+             band);     // rubber-band to cursor
+    if(pts.size() >= 2) // hint of the closing edge
         drawLine(mx, my, SX(pts[0].x), SY(pts[0].y), band);
 
-    for(size_t i = 0; i < pts.size(); ++i){                  // placed points
+    for(size_t i = 0; i < pts.size(); ++i) { // placed points
         int vx = SX(pts[i].x), vy = SY(pts[i].y);
-        int r = (i == 0) ? 3 : 2;                            // first point bigger (click to close)
+        int r = (i == 0) ? 3 : 2; // first point bigger (click to close)
         uint32_t c = (i == 0) ? 0xFFffffff : edge;
-        for(int dy=-r; dy<=r; ++dy) for(int dx=-r; dx<=r; ++dx) putPixel(vx+dx, vy+dy, c);
+        for(int dy = -r; dy <= r; ++dy)
+            for(int dx = -r; dx <= r; ++dx) putPixel(vx + dx, vy + dy, c);
     }
 }
 
@@ -609,12 +713,15 @@ void Renderer::drawPendingSector(const std::vector<Vec2>& pts, float sc, float o
 SurfaceRef Renderer::pickAt(int x, int y) const {
     SurfaceRef r;
     if(x < 0 || x >= W || y < 0 || y >= H) return r;
-    uint32_t s = pickBuffer_[(size_t)y*W + x];
+    uint32_t s = pickBuffer_[(size_t)y * W + x];
     int kind = (int)((s >> 28) & 0xF);
-    if(kind == 0) return r;                       // background / nothing
+    if(kind == 0) return r; // background / nothing
     r.kind = (SurfaceRef::Kind)kind;
-    if(kind == SurfaceRef::Sprite){ r.sprite = (int)(s & 0xFFFF); return r; }
-    r.wall   = (int)((s >> 16) & 0xFFF);
+    if(kind == SurfaceRef::Sprite) {
+        r.sprite = (int)(s & 0xFFFF);
+        return r;
+    }
+    r.wall = (int)((s >> 16) & 0xFFF);
     r.sector = (int)(s & 0xFFFF);
     return r;
 }

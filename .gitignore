@@ -10,3 +10,6 @@ portal_engine
 *.grp
 *.GRP
 /textures/duke/
+
+# macOS
+.DS_Store

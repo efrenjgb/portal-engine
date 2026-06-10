@@ -23,11 +23,12 @@ struct Sector {
     std::vector<int>              neighbors;
     std::vector<TextureTransform> wallTextures;     // parallel to vertices/neighbors
     std::vector<int>              wallTextureIds;    // image-texture index, -1 = procedural
+    std::vector<float>            wallLight;         // per-wall brightness (1 = normal)
     TextureTransform              floorTexture, ceilingTexture;
     int                           floorTextureId = -1, ceilingTextureId = -1;
     bool                          ceilingIsSky = false;   // render ceiling as a parallax sky
     uint32_t floorColor = 0, ceilingColor = 0, wallColor = 0;
-    float                         light = 1.0f;           // sector brightness (1 = normal)
+    float                         floorLight = 1.0f, ceilingLight = 1.0f;   // per-surface light
 };
 
 // A flat camera-facing billboard. z is the feet height; radius is half the

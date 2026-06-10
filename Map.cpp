@@ -1,8 +1,9 @@
 // Text map loader/writer. Format (one record per line, '#' starts a comment):
 //   player <x> <y> <sector> <angle_deg>
-//   sector <floor> <ceil> <floorcol> <ceilcol> <wallcol> [light]   colours = RRGGBB hex
-//     wall <x> <y> <neighbour>     one per vertex, CCW; -1 = solid
-//   sprite <x> <y> <z> <radius> <height> <col>
+//   sector <floor> <ceil> <floorcol> <ceilcol> <wallcol> [floorlight ceillight]
+//                                                         colours = RRGGBB hex
+//     wall <x> <y> <neighbour> [us vs uo vo [texId [light]]]   CCW; -1 = solid
+//   sprite <x> <y> <z> <radius> <height> <col> [texId]
 #include "Map.h"
 #include <cstdio>
 #include <cstring>
@@ -14,6 +15,7 @@ std::optional<Map> loadMap(const std::string& path){
     Map m;
     char line[256];
     int  cur = -1, ln = 0;
+    float wallLightDefault = 1.0f;   // applied to walls of a legacy single-light sector
     bool havePlayer = false;
 
     while(fgets(line, sizeof line, f)){
@@ -29,10 +31,14 @@ std::optional<Map> loadMap(const std::string& path){
             m.playerStart = {x, y}; m.startSector = s; m.startAngle = a * PI_F / 180.0f;
             havePlayer = true;
         } else if(!strcmp(kw, "sector")){
-            float fl, ce, light = 1.0f; unsigned fc, cc, wc;
-            int got = sscanf(p, "%*s %f %f %x %x %x %f", &fl, &ce, &fc, &cc, &wc, &light);
-            if(got != 5 && got != 6){ fprintf(stderr, "map:%d bad sector\n", ln); fclose(f); return std::nullopt; }
-            Sector S; S.floor = fl; S.ceiling = ce; S.light = light;
+            float fl, ce, l1 = 1.0f, l2 = 1.0f; unsigned fc, cc, wc;
+            int got = sscanf(p, "%*s %f %f %x %x %x %f %f", &fl, &ce, &fc, &cc, &wc, &l1, &l2);
+            if(got < 5 || got > 7){ fprintf(stderr, "map:%d bad sector\n", ln); fclose(f); return std::nullopt; }
+            Sector S; S.floor = fl; S.ceiling = ce;
+            // got==6 is a legacy single sector-wide light -> apply to floor, ceiling, walls
+            S.floorLight = (got >= 6) ? l1 : 1.0f;
+            S.ceilingLight = (got == 7) ? l2 : S.floorLight;
+            wallLightDefault = (got == 6) ? l1 : 1.0f;
             S.floorColor = 0xFF000000u|fc; S.ceilingColor = 0xFF000000u|cc; S.wallColor = 0xFF000000u|wc;
             m.sectors.push_back(std::move(S));
             cur = (int)m.sectors.size() - 1;
@@ -42,14 +48,15 @@ std::optional<Map> loadMap(const std::string& path){
             m.textures.push_back(file);
         } else if(!strcmp(kw, "wall")){
             if(cur < 0){ fprintf(stderr, "map:%d wall before sector\n", ln); fclose(f); return std::nullopt; }
-            float x, y; int nb, texId = -1; TextureTransform tx;
-            int got = sscanf(p, "%*s %f %f %d %f %f %f %f %d", &x, &y, &nb,
-                             &tx.uScale, &tx.vScale, &tx.uOffset, &tx.vOffset, &texId);
-            if(got != 3 && got != 7 && got != 8){ fprintf(stderr, "map:%d bad wall\n", ln); fclose(f); return std::nullopt; }
+            float x, y, wl = wallLightDefault; int nb, texId = -1; TextureTransform tx;
+            int got = sscanf(p, "%*s %f %f %d %f %f %f %f %d %f", &x, &y, &nb,
+                             &tx.uScale, &tx.vScale, &tx.uOffset, &tx.vOffset, &texId, &wl);
+            if(got != 3 && got != 7 && got != 8 && got != 9){ fprintf(stderr, "map:%d bad wall\n", ln); fclose(f); return std::nullopt; }
             m.sectors[cur].vertices.push_back({x, y});
             m.sectors[cur].neighbors.push_back(nb);
             m.sectors[cur].wallTextures.push_back(tx);
             m.sectors[cur].wallTextureIds.push_back(texId);
+            m.sectors[cur].wallLight.push_back(wl);
         } else if(!strcmp(kw, "floortex") || !strcmp(kw, "ceiltex")){
             if(cur < 0){ fprintf(stderr, "map:%d %s before sector\n", ln, kw); fclose(f); return std::nullopt; }
             TextureTransform tx; int texId = -1;
@@ -99,12 +106,18 @@ bool saveMap(const Map& m, const std::string& path){
                 (unsigned)(s.floorColor & 0xFFFFFF),
                 (unsigned)(s.ceilingColor  & 0xFFFFFF),
                 (unsigned)(s.wallColor  & 0xFFFFFF));
-        if(s.light != 1.0f) fprintf(f, " %g", s.light);
+        if(s.floorLight != 1.0f || s.ceilingLight != 1.0f)
+            fprintf(f, " %g %g", s.floorLight, s.ceilingLight);
         fprintf(f, "\n");
         for(size_t w = 0; w < s.vertices.size(); ++w){
             const TextureTransform& tx = s.wallTextures[w];
             int id = s.wallTextureIds[w];
-            if(id >= 0)
+            float wl = s.wallLight[w];
+            // light is positional after texId, so emit the full form when it's non-default
+            if(wl != 1.0f)
+                fprintf(f, "  wall %g %g %d %g %g %g %g %d %g\n", s.vertices[w].x, s.vertices[w].y,
+                        s.neighbors[w], tx.uScale, tx.vScale, tx.uOffset, tx.vOffset, id, wl);
+            else if(id >= 0)
                 fprintf(f, "  wall %g %g %d %g %g %g %g %d\n", s.vertices[w].x, s.vertices[w].y,
                         s.neighbors[w], tx.uScale, tx.vScale, tx.uOffset, tx.vOffset, id);
             else if(!tx.isDefault())

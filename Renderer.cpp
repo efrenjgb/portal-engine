@@ -55,7 +55,7 @@ static float sectorLightAt(const Map& m, Vec2 p){
             if(((a.y > p.y) != (b.y > p.y)) &&
                (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) in = !in;
         }
-        if(in) return S.light;
+        if(in) return S.floorLight;     // a sprite rests on the floor
     }
     return 1.0f;
 }
@@ -285,19 +285,20 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector){
 
                 uint32_t ceilSurf = packSurface(now.sector, SurfaceRef::Ceiling, 0);
                 if(sec.ceilingIsSky) skySpan(x, wt, cya-1, sec.ceilingColor, sec.ceilingTextureId, ceilSurf);
-                else            planeSpan(P, x, wt, cya-1, sec.ceiling, sec.ceilingColor, ceilSurf, sec.ceilingTexture, sec.ceilingTextureId, sec.light);
-                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorColor, packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture, sec.floorTextureId, sec.light);
+                else            planeSpan(P, x, wt, cya-1, sec.ceiling, sec.ceilingColor, ceilSurf, sec.ceilingTexture, sec.ceilingTextureId, sec.ceilingLight);
+                planeSpan(P, x, cyb+1, wb, sec.floor, sec.floorColor, packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture, sec.floorTextureId, sec.floorLight);
 
                 uint32_t wsurf = packSurface(now.sector, SurfaceRef::Wall, s);
                 const TextureTransform& wtx = sec.wallTextures[s];
                 int wid = sec.wallTextureIds[s];
+                float wlight = sec.wallLight[s];
                 if(nb < 0){
-                    wallSpan(x, yaf, ybf, sec.ceiling, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, sec.light);
+                    wallSpan(x, yaf, ybf, sec.ceiling, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, wlight);
                 } else {
                     float naf = n1a + (n2a - n1a) * t;
                     float nbf = n1b + (n2b - n1b) * t;
-                    wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling,  wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, sec.light);
-                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, sec.light);
+                    wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling,  wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, wlight);
+                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf, wtx, wid, wlight);
                     // shrink the LIVE window (monotonically) for queued children
                     columnTop_[x] = std::max(columnTop_[x], clampi(std::max((int)yaf, (int)naf), wt, H-1));
                     columnBottom_[x] = std::min(columnBottom_[x], clampi(std::min((int)ybf, (int)nbf), 0,  wb));

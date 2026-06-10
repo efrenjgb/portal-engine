@@ -79,10 +79,14 @@ Floors/ceilings are drawn per-pixel by inverse projection (`planeSpan`, "floor c
 Sky is a static screen-locked backdrop (`skySpan`, `ceilingIsSky` per sector). Sprites are
 billboards sorted far-to-near and z-tested (`drawSprites`).
 
-Each `Sector` has a `light` multiplier (1 = normal); wall/floor/ceiling spans multiply
-their distance fade by it, and sprites by their containing sector's light
-(`sectorLightAt`). `shade()` clamps channels so light > 1 brightens. Edit live with
-`Y`/`H` on the aimed sector; saved as an optional 6th field on the `sector` line.
+Lighting is **per-surface** (like BUILD): each wall has its own `wallLight[w]` and the
+sector has `floorLight`/`ceilingLight` (1 = normal). The spans multiply their distance
+fade by the relevant value; sprites use their sector's `floorLight` (`sectorLightAt`).
+`shade()` clamps channels so light > 1 brightens. `Y`/`H` edit the exact surface under
+the crosshair. Map format: floor/ceil light are two optional trailing floats on the
+`sector` line; wall light is an optional field after the wall's `texId` (a legacy
+single sector light is read and spread to floor/ceiling/walls). `wallLight` is kept
+parallel to `vertices` everywhere walls are inserted/erased.
 
 **Texture picker (EDITOR).** `B` in the 3D view opens `Renderer::drawTextureBrowser`,
 a modal thumbnail grid of the PNGs under `textures/duke/` (lazy-loaded into a browse

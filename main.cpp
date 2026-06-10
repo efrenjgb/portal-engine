@@ -73,6 +73,7 @@ static void splitWall(Map& m, int s, int w, Vec2 p){
         S.neighbors.insert(S.neighbors.begin()+at+1, S.neighbors[at]);
         S.wallTextures.insert(S.wallTextures.begin()+at+1, S.wallTextures[at]);
         S.wallTextureIds.insert(S.wallTextureIds.begin()+at+1, S.wallTextureIds[at]);
+        S.wallLight.insert(S.wallLight.begin()+at+1, S.wallLight[at]);
     };
     Sector& S = m.sectors[s];
     int n = (int)S.vertices.size();
@@ -104,6 +105,7 @@ static bool deleteVertex(Map& m, Vec2 p){
         S.neighbors.erase(S.neighbors.begin()+i);
         S.wallTextures.erase(S.wallTextures.begin()+i);
         S.wallTextureIds.erase(S.wallTextureIds.begin()+i);
+        S.wallLight.erase(S.wallLight.begin()+i);
     }
     return true;
 }
@@ -166,6 +168,7 @@ static bool addSector(Map& m, std::vector<Vec2> pts){
     S.neighbors.assign(n, -1);
     S.wallTextures.assign(n, TextureTransform{});
     S.wallTextureIds.assign(n, -1);
+    S.wallLight.assign(n, 1.0f);
     m.sectors.push_back(std::move(S));
     rebuildPortals(m);
     return true;
@@ -235,7 +238,7 @@ int main(int argc, char** argv){
     printf("   Tab           : toggle edit mode\n"
              "     T / G       :   raise / lower the aimed SPRITE's height, else the aimed sector's\n"
              "                       CEILING (look up) or FLOOR (look down)\n"
-             "     Y / H       :   brighten / darken the aimed sector (lighting)\n"
+             "     Y / H       :   brighten / darken the aimed wall / floor / ceiling (lighting)\n"
              "     [ / ]       :   shrink / grow texture on aimed surface\n"
              "     ; / '       :   pan texture horizontally\n"
              "     , / .       :   pan texture vertically\n"
@@ -638,12 +641,18 @@ int main(int argc, char** argv){
                     }
                 }
             }
-            // Y / H brighten / darken the aimed sector
+            // Y / H brighten / darken the exact surface under the crosshair
             if((ks[SDL_SCANCODE_Y] || ks[SDL_SCANCODE_H]) &&
                aim.sector >= 0 && aim.sector < (int)map.sectors.size()){
-                float& L = map.sectors[aim.sector].light;
-                if(ks[SDL_SCANCODE_Y]) L = std::min(L + 0.8f*dt, 1.8f);
-                if(ks[SDL_SCANCODE_H]) L = std::max(L - 0.8f*dt, 0.1f);
+                Sector& s = map.sectors[aim.sector];
+                float* L = nullptr;
+                if(aim.kind == SurfaceRef::Wall && aim.wall < (int)s.wallLight.size()) L = &s.wallLight[aim.wall];
+                else if(aim.kind == SurfaceRef::Floor)   L = &s.floorLight;
+                else if(aim.kind == SurfaceRef::Ceiling) L = &s.ceilingLight;
+                if(L){
+                    if(ks[SDL_SCANCODE_Y]) *L = std::min(*L + 0.8f*dt, 1.8f);
+                    if(ks[SDL_SCANCODE_H]) *L = std::max(*L - 0.8f*dt, 0.1f);
+                }
             }
 
             // texture wrap/pan still acts on the exact surface under the crosshair

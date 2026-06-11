@@ -58,7 +58,8 @@ class Renderer {
     // Full-screen top-down map editor. (sc, ox, oy) map world->screen as
     // sx = ox + wx*sc, sy = oy - wy*sc. hov*/hw* highlight a vertex / wall.
     void drawMapEditor(const Map& map, float sc, float ox, float oy, int hovSec, int hovVert,
-                       int hwSec, int hwWall, Vec2 playerPos, float playerAng, int hovSprite = -1);
+                       int hwSec, int hwWall, Vec2 playerPos, float playerAng, int hovSprite = -1,
+                       float gridSize = 1.0f);
 
     // Overlay the in-progress polygon while drawing a new sector (2D editor):
     // placed points, the edges between them, and a rubber-band to the cursor.

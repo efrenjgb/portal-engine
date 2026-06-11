@@ -416,8 +416,8 @@ int main(int argc, char** argv) {
            "solid/masked)\n"
            "   O             :   toggle sky backdrop on aimed ceiling\n"
            "   C             :   tag aimed sector none/door/lift (door=ceiling, lift=floor)\n"
-           "   Enter         : 2D map view  (G grid snap, hold Alt to bypass | Z undo | Del/X "
-           "delete vertex/sprite)\n"
+           "   Enter         : 2D map view  (G grid snap, [ / ] grid finer/coarser, hold Alt to "
+           "bypass | Z undo | Del/X delete vertex/sprite)\n"
            "                     drag a vertex to move it; drag a sprite (diamond) to reposition "
            "it; N adds a sprite;\n"
            "                     click a wall to split in a vertex; coincide two walls to bond a "
@@ -737,6 +737,15 @@ int main(int argc, char** argv) {
                             gridSnap = !gridSnap;
                             printf("grid snap %s\n", gridSnap ? "on" : "off");
                             showMessage(gridSnap ? "grid snap on" : "grid snap off");
+                        }
+                        if(k == SDLK_LEFTBRACKET ||
+                           k == SDLK_RIGHTBRACKET) { // grid finer / coarser
+                            gridSize = clampf(gridSize * (k == SDLK_RIGHTBRACKET ? 2.0f : 0.5f),
+                                              0.0625f, 16.0f);
+                            char b[32];
+                            snprintf(b, sizeof b, "grid %g", gridSize);
+                            printf("%s\n", b);
+                            showMessage(b);
                         }
                         if(k == SDLK_b) { // start / finish drawing a new sector
                             if(drawing) {
@@ -1093,7 +1102,7 @@ int main(int argc, char** argv) {
             }
             renderer.drawMapEditor(map, mvScale, mvOx, mvOy, hv.sector, hv.index, hw.sector,
                                    hw.index, {player.camera.x, player.camera.y},
-                                   player.camera.angle, hovSprite);
+                                   player.camera.angle, hovSprite, gridSize);
             if(drawing) renderer.drawPendingSector(drawPts, mvScale, mvOx, mvOy, mouseX, mouseY);
         } else
 #endif

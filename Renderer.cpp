@@ -681,20 +681,22 @@ void Renderer::drawTextureBrowser(const std::vector<Texture>& pool, const std::v
 }
 
 void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy, int hovSec, int hovVert,
-                             int hwSec, int hwWall, Vec2 pp, float pa, int hovSprite) {
+                             int hwSec, int hwWall, Vec2 pp, float pa, int hovSprite,
+                             float gridSize) {
     auto SX = [&](float wx) { return (int)(ox + wx * sc); };
     auto SY = [&](float wy) { return (int)(oy - wy * sc); };
 
-    // faint unit grid (only when it won't be a dense mush)
-    if(sc >= 4.0f) {
-        int gx0 = (int)std::floor((0 - ox) / sc), gx1 = (int)std::ceil((W - ox) / sc);
-        int gy0 = (int)std::floor((oy - (H - 1)) / sc), gy1 = (int)std::ceil((oy - 0) / sc);
+    // faint grid at the snap spacing (skip when cells would be a dense mush)
+    float g = gridSize > 0.0f ? gridSize : 1.0f;
+    if(sc * g >= 4.0f) {
+        int gx0 = (int)std::floor((0 - ox) / sc / g), gx1 = (int)std::ceil((W - ox) / sc / g);
+        int gy0 = (int)std::floor((oy - (H - 1)) / sc / g), gy1 = (int)std::ceil((oy - 0) / sc / g);
         if(gx1 - gx0 < 400)
             for(int gx = gx0; gx <= gx1; ++gx)
-                drawLine(SX((float)gx), 0, SX((float)gx), H - 1, 0xFF15181f);
+                drawLine(SX(gx * g), 0, SX(gx * g), H - 1, 0xFF15181f);
         if(gy1 - gy0 < 400)
             for(int gy = gy0; gy <= gy1; ++gy)
-                drawLine(0, SY((float)gy), W - 1, SY((float)gy), 0xFF15181f);
+                drawLine(0, SY(gy * g), W - 1, SY(gy * g), 0xFF15181f);
     }
 
     // walls (portal = green, solid = grey; aimed wall = yellow)

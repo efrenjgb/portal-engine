@@ -62,6 +62,23 @@ static float sectorLightAt(const Map& m, Vec2 p) {
     return 1.0f;
 }
 
+// Is (x,y) inside one of the sector's inner hole loops? Floor/ceiling casting
+// skips those pixels so the parent surface doesn't draw over a cutout (the inner
+// sector, reached through the hole's portal walls, fills them instead).
+static bool pointInHoles(const Sector& s, float x, float y) {
+    for(size_t k = 1; k < s.loopStart.size(); ++k) {
+        bool in = false;
+        int b = s.loopStart[k], e = s.loopEnd((int)k);
+        for(int i = b, j = e - 1; i < e; j = i++) {
+            Vec2 A = s.vertices[i], B = s.vertices[j];
+            if(((A.y > y) != (B.y > y)) && (x < (B.x - A.x) * (y - A.y) / (B.y - A.y) + A.x))
+                in = !in;
+        }
+        if(in) return true;
+    }
+    return false;
+}
+
 // ---- Renderer --------------------------------------------------------------
 Renderer::Renderer(int w, int h)
     : W(w), H(h), focalLength_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
@@ -163,11 +180,12 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
 
 void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base,
                          [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId,
-                         float light) {
+                         float light, const Sector* holes) {
     if(y0 < 0) y0 = 0;
     if(y1 > H - 1) y1 = H - 1;
     float h = pz - P.z;
     const Texture* img = imageFor(texId);
+    bool hasHoles = holes && holes->loopStart.size() > 1;
     for(int y = y0; y <= y1; ++y) {
         float denom = (H * 0.5f - y) - P.pitch * focalLength_;
         float tz = h * focalLength_ / denom;
@@ -177,6 +195,7 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float txc = (x - W * 0.5f) * tz / focalLength_;
         float wx = P.x + P.yawCos * tz + P.yawSin * txc;
         float wy = P.y + P.yawSin * tz - P.yawCos * txc;
+        if(hasHoles && pointInHoles(*holes, wx, wy)) continue; // a cutout fills this pixel
         float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(sx, sy) : sampleTile(base, sx, sy);
         if(img && isClear(c)) continue; // colour-key: read through to whatever's behind
@@ -378,10 +397,10 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
                     skySpan(x, wt, cya - 1, sec.ceilingColor, sec.ceilingTextureId, ceilSurf);
                 else
                     planeSpan(P, x, wt, cya - 1, sec.ceiling, sec.ceilingColor, ceilSurf,
-                              sec.ceilingTexture, sec.ceilingTextureId, sec.ceilingLight);
+                              sec.ceilingTexture, sec.ceilingTextureId, sec.ceilingLight, &sec);
                 planeSpan(P, x, cyb + 1, wb, sec.floor, sec.floorColor,
                           packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture,
-                          sec.floorTextureId, sec.floorLight);
+                          sec.floorTextureId, sec.floorLight, &sec);
 
                 uint32_t wsurf = packSurface(now.sector, SurfaceRef::Wall, s);
                 const TextureTransform& wtx = sec.wallTextures[s];

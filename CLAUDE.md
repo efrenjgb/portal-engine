@@ -174,10 +174,12 @@ no-op for ordinary single-loop sectors. Drawing a polygon (`B`) **fully inside**
 existing sector makes a **cutout** (`addCutout`): the parent gains a hole loop
 (`pts` reversed) and a new inner sector (CCW, inheriting the parent's look) is
 created; `rebuildPortals` bonds them into portals both ways. Then raise the inner
-floor to its ceiling for a **column**, or lower the inner ceiling for a **recess**.
-Map format: a `loop` line begins an inner loop. **Limitation:** a *sunken pit*
-(inner floor below the parent floor) renders wrong — the parent floor casts over the
-hole; needs a floor-clip-to-hole pass (not yet done).
+floor to its ceiling for a **column**, lower the inner ceiling for a **recess**, or
+lower the inner floor for a **pit**. Map format: a `loop` line begins an inner loop.
+Floor/ceiling casting (`planeSpan`) skips pixels that fall inside a hole loop
+(`pointInHoles`) so the parent surface doesn't draw over the cutout — the inner
+sector, reached through the hole's portal walls, fills it (this is what makes sunken
+pits render correctly; a single-range column window can't notch out a hole).
 
 **Doors & lifts.** A sector can be a `mover` (Sector in `Map.h`): a **door** (1)
 animates its **ceiling** between the floor (closed) and `moverRest` (the authored

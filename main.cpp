@@ -417,6 +417,7 @@ int main(int argc, char** argv) {
            "solid/masked)\n"
            "   O             :   toggle sky backdrop on aimed ceiling\n"
            "   C             :   tag aimed sector none/door/lift (door=ceiling, lift=floor)\n"
+           "   J             :   match aimed floor/ceiling to the adjacent sector's height\n"
            "   Enter         : 2D map view  (G grid snap, [ / ] grid finer/coarser, hold Alt to "
            "bypass | Z undo | Del/X delete vertex/sprite)\n"
            "                     drag a vertex to move it; drag a sprite (diamond) to reposition "
@@ -894,6 +895,43 @@ int main(int argc, char** argv) {
                             const char* names[] = {"none", "door", "lift"};
                             printf("sector %d mover = %s\n", a.sector, names[s.mover]);
                             showMessage(std::string("mover: ") + names[s.mover]);
+                        }
+                    }
+                    if(k == SDLK_j && !mapView) { // match aimed floor/ceiling to an adjacent sector
+                        SurfaceRef a = renderer.pickAt(W / 2, H / 2);
+                        if(a.sector >= 0 && a.sector < (int)map.sectors.size() &&
+                           (a.kind == SurfaceRef::Floor || a.kind == SurfaceRef::Ceiling)) {
+                            Sector& s = map.sectors[a.sector];
+                            bool fl = (a.kind == SurfaceRef::Floor);
+                            float cur = fl ? s.floor : s.ceiling;
+                            // prefer the sector you're standing in (if it borders the
+                            // aimed one), else the neighbour whose matching surface is
+                            // closest to the current height
+                            int ref = -1;
+                            for(int nb : s.neighbors)
+                                if(nb == player.sector) ref = nb;
+                            if(ref < 0) {
+                                float best = 1e30f;
+                                for(int nb : s.neighbors)
+                                    if(nb >= 0) {
+                                        float h =
+                                            fl ? map.sectors[nb].floor : map.sectors[nb].ceiling;
+                                        if(std::fabs(h - cur) < best) {
+                                            best = std::fabs(h - cur);
+                                            ref = nb;
+                                        }
+                                    }
+                            }
+                            if(ref >= 0) {
+                                pushUndo();
+                                if(fl) s.floor = std::min(map.sectors[ref].floor, s.ceiling);
+                                else s.ceiling = std::max(map.sectors[ref].ceiling, s.floor);
+                                char b[48];
+                                snprintf(b, sizeof b, "%s matched to sector %d (%g)",
+                                         fl ? "floor" : "ceiling", ref, fl ? s.floor : s.ceiling);
+                                printf("%s\n", b);
+                                showMessage(b);
+                            } else showMessage("no adjacent sector to match");
                         }
                     }
                     if(k == SDLK_k) {

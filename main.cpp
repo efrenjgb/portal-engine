@@ -407,8 +407,8 @@ int main(int argc, char** argv) {
            "     T / G       :   raise / lower the aimed SPRITE's height, else the aimed sector's\n"
            "                       CEILING (look up) or FLOOR (look down)\n"
            "     Y / H       :   brighten / darken the aimed wall / floor / ceiling (lighting)\n"
-           "     [ / ]       :   shrink / grow texture on aimed surface, or resize aimed "
-           "SPRITE\n"
+           "     [ / ]       :   texture WIDTH on aimed surface (or resize aimed SPRITE)\n"
+           "     - / =       :   texture HEIGHT on aimed surface\n"
            "     ; / '       :   pan texture horizontally\n"
            "     , / .       :   pan texture vertically\n"
            "   N             :   cycle image texture on aimed surface\n"
@@ -1032,14 +1032,11 @@ int main(int argc, char** argv) {
                     else if(aim.kind == SurfaceRef::Ceiling) tx = &t.ceilingTexture;
                     if(tx) {
                         float pan = 1.5f * dt, sf = 1.0f + 1.5f * dt;
-                        if(ks[SDL_SCANCODE_RIGHTBRACKET]) {
-                            tx->uScale *= sf;
-                            tx->vScale *= sf;
-                        }
-                        if(ks[SDL_SCANCODE_LEFTBRACKET]) {
-                            tx->uScale /= sf;
-                            tx->vScale /= sf;
-                        }
+                        // [ / ] scale WIDTH (u), - / = scale HEIGHT (v), independently
+                        if(ks[SDL_SCANCODE_RIGHTBRACKET]) tx->uScale *= sf;
+                        if(ks[SDL_SCANCODE_LEFTBRACKET]) tx->uScale /= sf;
+                        if(ks[SDL_SCANCODE_EQUALS]) tx->vScale *= sf;
+                        if(ks[SDL_SCANCODE_MINUS]) tx->vScale /= sf;
                         tx->uScale = clampf(tx->uScale, 0.1f, 16.0f);
                         tx->vScale = clampf(tx->vScale, 0.1f, 16.0f);
                         if(ks[SDL_SCANCODE_APOSTROPHE]) tx->uOffset += pan;

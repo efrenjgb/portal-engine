@@ -16,7 +16,9 @@ make          # editor build -> ./portal_engine  (EDITOR=1: in-engine editor + p
 make run      # build, then ./portal_engine (loads ./map.txt)
 make play     # stripped build (-DEDITOR=0): no editor, no pick buffer; cleans first
 make clean
-./portal_engine [mapfile] [--novsync]   # mapfile defaults to ./map.txt; --novsync uncaps FPS
+./portal_engine [mapfile] [--novsync] [--res WxH]   # mapfile defaults to ./map.txt;
+                                        # --novsync uncaps FPS; --res sets the framebuffer
+                                        # (default 1280x960, 4:3). e.g. --res 1600x1200
 ```
 
 The `EDITOR` macro (default 1, set in `Vec2.h`) `#if`-strips all editor input, the
@@ -92,12 +94,30 @@ parallel to `vertices` everywhere walls are inserted/erased.
 a modal thumbnail grid of the PNGs under `textures/duke/` (lazy-loaded into a browse
 pool on first open). Clicking a tile calls `ensureTexture` (appends it to `map.textures`
 + `texSet` only if new, so saves stay minimal) and sets the aimed wall/floor/ceiling
-`textureId` or the aimed sprite's `textureId`. Image textures carry alpha (loadImage
-forces RGBA); walls stay opaque via `shade`, sprites cut out on alpha < 128.
+`textureId` or the aimed sprite's `textureId`. Transparency is a **magenta
+colour-key**: `grp_extract.py` exports BUILD's index-255 key as opaque magenta, and
+`isClear()` (Texture.h, magenta *or* alpha < 128) is honoured on *every* render
+path — `wallSpan`/`planeSpan` skip keyed texels (read through to whatever's behind)
+and `drawSprites` cuts them out. So a masked tile reads through on a wall/floor
+instead of showing a black hole.
 `F` filters the grid All/Solid/Masked — tiles are classified once at load by their
-transparent-texel fraction (>5% = masked/sprite-like), and the picker opens on Solid
-for a surface, Masked for a sprite. (BUILD's `.ART` has no wall-vs-sprite flag, so
-this is a transparency heuristic, not metadata.)
+magenta-key fraction (>5% keyed = masked/sprite-like, via `isClear`), and the picker
+opens on Solid for a surface, Masked for a sprite. `F` toggles the two filters
+Solid/Masked. (BUILD's `.ART` has no wall-vs-sprite flag, so this is a transparency
+heuristic, not metadata.) Picking a tile for a sprite sizes it to the texture's pixel
+aspect (`fitSprite`, world-per-texel `k`); `[`/`]` resizes the aimed sprite uniformly
+in 3D (keeping aspect), while `T`/`G` still move its height (z) along the sector.
+
+**Animated textures.** `grp_extract.py` decodes BUILD's `picanm` into
+`textures/duke/anim.txt` (`base_tile num type speed` per animated tile; frames are
+the consecutive tiles `base..base+num`). At load, `main.cpp` reads it and, for every
+map texture that is an animated base, loads its frame tiles into `texSet`
+(and `map.textures`, to keep them 1:1) and records a `TexAnim` (Texture.h);
+`animOf[texId]` indexes into `anims`, or `-1`. `Renderer::imageFor` resolves an
+animated id to the current frame via `animFrame()` off `animTime_`, which the main
+loop drives with `advanceAnim(dt)`. `setupAnim` runs at load and when a tile is
+picked in the editor, so animated tiles animate immediately. `type` is 1=oscillating
+2=forward 3=backward; rate is `ANIM_HZ / (1<<speed)` (Renderer.cpp).
 
 **HUD text** is a built-in 5x7 bitmap font (`Renderer::drawText`, font table in
 `Renderer.cpp`) drawn straight into the framebuffer — no SDL_ttf. It uppercases input

@@ -227,6 +227,34 @@ static bool addSector(Map& m, std::vector<Vec2> pts) {
 }
 #endif
 
+// Move v toward goal by at most step.
+static float approach(float v, float goal, float step) {
+    return v < goal ? std::min(v + step, goal) : std::max(v - step, goal);
+}
+
+// A lift rises to the highest floor among its neighbours (the platform it serves).
+static float liftTop(const Map& map, const Sector& s) {
+    float top = s.moverRest;
+    for(int nb : s.neighbors)
+        if(nb >= 0) top = std::max(top, map.sectors[nb].floor);
+    return top;
+}
+
+// Advance every door/lift one frame toward its current target. Doors drive the
+// ceiling (floor=closed, moverRest=open); lifts drive the floor (moverRest=down,
+// liftTop=up). Runs in both editor and play builds.
+static void updateMovers(Map& map, float dt) {
+    for(Sector& s : map.sectors) {
+        if(s.mover == 1) { // door
+            float goal = s.moverOpen ? s.moverRest : s.floor;
+            s.ceiling = approach(s.ceiling, goal, s.moverSpeed * dt);
+        } else if(s.mover == 2) { // lift
+            float goal = s.moverOpen ? liftTop(map, s) : s.moverRest;
+            s.floor = approach(s.floor, goal, s.moverSpeed * dt);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     // Args: an optional map file (first non-flag arg) and flags. --novsync uncaps
     // the frame rate (renderer created without SDL_RENDERER_PRESENTVSYNC).
@@ -372,6 +400,7 @@ int main(int argc, char** argv) {
            "   Q / E         : turn left / right\n"
            "   R / F         : look up / down\n"
            "   Space         : jump\n"
+           "   U             : use (open/close the door or lift you're facing)\n"
            "   M             : release / recapture mouse\n",
            EDITOR ? "" : "  [play build]");
 #if EDITOR
@@ -387,6 +416,7 @@ int main(int argc, char** argv) {
            "   B             :   browse + pick a texture for the aimed wall/sprite (F: "
            "solid/masked)\n"
            "   O             :   toggle sky backdrop on aimed ceiling\n"
+           "   C             :   tag aimed sector none/door/lift (door=ceiling, lift=floor)\n"
            "   Enter         : 2D map view  (G grid snap, hold Alt to bypass | Z undo | Del/X "
            "delete vertex/sprite)\n"
            "                     drag a vertex to move it; drag a sprite (diamond) to reposition "
@@ -822,6 +852,25 @@ int main(int argc, char** argv) {
                             showMessage(sky ? "ceiling sky on" : "ceiling sky off");
                         }
                     }
+                    if(k == SDLK_c && !mapView) { // cycle aimed sector: none->door->lift->none
+                        SurfaceRef a = renderer.pickAt(W / 2, H / 2);
+                        if(a.sector >= 0 && a.sector < (int)map.sectors.size()) {
+                            pushUndo();
+                            Sector& s = map.sectors[a.sector];
+                            if(s.mover == 1) s.ceiling = s.moverRest; // restore rest before re-tag
+                            else if(s.mover == 2) s.floor = s.moverRest;
+                            s.mover = (s.mover + 1) % 3;
+                            s.moverOpen = false;
+                            if(s.mover == 1) { // door: remember open ceiling, start closed
+                                s.moverRest = s.ceiling;
+                                s.ceiling = s.floor;
+                            } else if(s.mover == 2) // lift: floor is the down position
+                                s.moverRest = s.floor;
+                            const char* names[] = {"none", "door", "lift"};
+                            printf("sector %d mover = %s\n", a.sector, names[s.mover]);
+                            showMessage(std::string("mover: ") + names[s.mover]);
+                        }
+                    }
                     if(k == SDLK_k) {
                         bool ok = saveMap(map, savePath);
                         showMessage(ok ? "saved " + savePath : "save failed");
@@ -898,6 +947,25 @@ int main(int argc, char** argv) {
             }
             player.collideSprites(map);
             player.keepInside(map);
+
+            // ---- doors / lifts ----
+            // `use` (U, edge-triggered) toggles the door/lift the crosshair points
+            // at; every mover then animates. A closed door's height gap is below
+            // player height, so the move/collision code already blocks you until it
+            // opens. Runs in both builds (aimMoverSector needs no pick buffer).
+            static bool usePrev = false;
+            bool useNow = ks[SDL_SCANCODE_U];
+            if(useNow && !usePrev) {
+                int ms = player.aimMoverSector(map);
+                if(ms >= 0) {
+                    Sector& d = map.sectors[ms];
+                    d.moverOpen = !d.moverOpen;
+                    printf("use: %s sector %d -> %s\n", d.mover == 2 ? "lift" : "door", ms,
+                           d.moverOpen ? "open/up" : "closed/down");
+                }
+            }
+            usePrev = useNow;
+            updateMovers(map, dt);
 
             // ---- what's under the crosshair + the height editor (editor builds) ----
 #if EDITOR

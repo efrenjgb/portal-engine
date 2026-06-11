@@ -29,6 +29,19 @@ struct Sector {
     bool ceilingIsSky = false; // render ceiling as a parallax sky
     uint32_t floorColor = 0, ceilingColor = 0, wallColor = 0;
     float floorLight = 1.0f, ceilingLight = 1.0f; // per-surface light
+
+    // Door / lift: a sector that animates one surface between two heights when the
+    // player presses `use`. A DOOR (mover==1) slides its ceiling between the floor
+    // (closed) and moverRest (the authored ceiling = open). A LIFT (mover==2)
+    // slides its floor between moverRest (the authored floor = down) and the
+    // highest neighbouring floor (up). The closed-door height gap is < player
+    // height, so the existing collision blocks you until it opens — no special
+    // case needed. mover/moverSpeed are authored (map `mover` line); moverRest and
+    // moverOpen are runtime state.
+    int mover = 0;           // 0 none, 1 door (ceiling), 2 lift (floor)
+    float moverSpeed = 3.0f; // units / second
+    float moverRest = 0.0f;  // authored rest height of the moved surface
+    bool moverOpen = false;  // current target: door open / lift up
 };
 
 // A flat camera-facing billboard. z is the feet height; radius is half the

@@ -3,6 +3,7 @@
 //   sector <floor> <ceil> <floorcol> <ceilcol> <wallcol> [floorlight ceillight]
 //                                                         colours = RRGGBB hex
 //     wall <x> <y> <neighbour> [us vs uo vo [texId [light]]]   CCW; -1 = solid
+//     mover door|lift [speed]   makes the current sector a door/lift (see Sector)
 //   sprite <x> <y> <z> <radius> <height> <col> [texId]
 #include "Map.h"
 #include <cstdio>
@@ -121,6 +122,33 @@ std::optional<Map> loadMap(const std::string& path) {
                 return std::nullopt;
             }
             m.sectors[cur].ceilingIsSky = true;
+        } else if(!strcmp(kw, "mover")) {
+            if(cur < 0) {
+                fprintf(stderr, "map:%d mover before sector\n", ln);
+                fclose(f);
+                return std::nullopt;
+            }
+            char kind[16];
+            float sp = 3.0f;
+            int got = sscanf(p, "%*s %15s %f", kind, &sp);
+            if(got < 1) {
+                fprintf(stderr, "map:%d bad mover\n", ln);
+                fclose(f);
+                return std::nullopt;
+            }
+            Sector& S = m.sectors[cur];
+            S.mover =
+                (kind[0] == 'l' || kind[0] == 'L' || kind[0] == '2') ? 2 : 1; // lift else door
+            if(got >= 2) S.moverSpeed = sp;
+            // Start at rest: a door closed (ceiling pulled to the floor, its open
+            // height remembered in moverRest), a lift down (floor unchanged).
+            if(S.mover == 1) {
+                S.moverRest = S.ceiling;
+                S.ceiling = S.floor;
+            } else {
+                S.moverRest = S.floor;
+            }
+            S.moverOpen = false;
         } else if(!strcmp(kw, "sprite")) {
             float x, y, z, r, h;
             unsigned col;
@@ -176,7 +204,11 @@ bool saveMap(const Map& m, const std::string& path) {
     fprintf(f, "player %g %g %d %g\n\n", m.playerStart.x, m.playerStart.y, m.startSector,
             m.startAngle * 180.0f / PI_F);
     for(const Sector& s : m.sectors) {
-        fprintf(f, "sector %g %g %06x %06x %06x", s.floor, s.ceiling,
+        // A door/lift animates floor or ceiling at runtime; persist its authored
+        // rest height (moverRest) rather than wherever it happens to be mid-move.
+        float floorOut = (s.mover == 2) ? s.moverRest : s.floor;
+        float ceilOut = (s.mover == 1) ? s.moverRest : s.ceiling;
+        fprintf(f, "sector %g %g %06x %06x %06x", floorOut, ceilOut,
                 (unsigned)(s.floorColor & 0xFFFFFF), (unsigned)(s.ceilingColor & 0xFFFFFF),
                 (unsigned)(s.wallColor & 0xFFFFFF));
         if(s.floorLight != 1.0f || s.ceilingLight != 1.0f)
@@ -213,6 +245,7 @@ bool saveMap(const Map& m, const std::string& path) {
             fprintf(f, "  ceiltex %g %g %g %g\n", s.ceilingTexture.uScale, s.ceilingTexture.vScale,
                     s.ceilingTexture.uOffset, s.ceilingTexture.vOffset);
         if(s.ceilingIsSky) fprintf(f, "  ceilsky\n");
+        if(s.mover) fprintf(f, "  mover %s %g\n", s.mover == 2 ? "lift" : "door", s.moverSpeed);
         fprintf(f, "\n");
     }
     for(const Sprite& s : m.sprites) {

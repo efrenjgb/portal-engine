@@ -11,6 +11,8 @@ across sessions. Done items kept for context; open items grouped by theme.
   portals, grid snap (Alt bypass), undo, add/move/delete sprites
 - 3D editor: per-surface texture wrap/pan, texture cycle (`N`), texture **picker**
   (`B`) browsing imported tiles with All/Solid/Masked filter, sky toggle (`O`)
+- **Doors / lifts + `use` key** (`U`): tagged sectors (`C` in 3D editor) animate a
+  surface on use — door drives the ceiling, lift the floor; works in `make play`
 - Per-surface **lighting** (per-wall + floor/ceiling), `Y`/`H`
 - Height edit by camera pitch / aimed surface (`T`/`G`)
 - HUD text (built-in 5x7 font), FPS counter, transient toast messages
@@ -37,7 +39,6 @@ across sessions. Done items kept for context; open items grouped by theme.
   `tx/tz/fx`, parser locals); members/constants/buffers already done
 
 ## Open — make it interactive (a *game*)
-- **Doors / lifts + a `use` key** (tagged sectors that animate) — biggest payoff
 - Pickups / triggers / switches
 - **Lua + sol2 scripting layer** for sprite/sector behavior, hot-reloadable
   without restarting — full design in [Appendix A](#appendix-a--lua--sol2-scripting-design)

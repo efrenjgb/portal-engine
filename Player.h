@@ -23,6 +23,7 @@ class Player {
     void keepInside(const Map& map);                // standoff from walls
     void collideSprites(const Map& map);            // bump into sprites
     int pickSector(const Map& map) const;           // sector under the crosshair
+    int aimMoverSector(const Map& map) const;       // nearest door/lift the crosshair ray hits
     void jump();                                    // hop, if standing
     void settleEyeHeight(const Map& map, float dt); // gravity + floor follow
 };

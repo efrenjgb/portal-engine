@@ -127,6 +127,43 @@ int Player::pickSector(const Map& map) const {
     return sec;
 }
 
+// Walk the forward ray through portals (like pickSector) and return the first
+// sector with a door/lift, within reach. Works without the editor pick buffer,
+// so the `use` key functions in the stripped play build too. -1 if none in range.
+int Player::aimMoverSector(const Map& map) const {
+    const float REACH = 4.0f;
+    float px = camera.x, py = camera.y, dx = camera.yawCos, dy = camera.yawSin, dist = 0.0f;
+    int sec = sector;
+    for(int iter = 0; iter < 64; ++iter) {
+        if(map.sectors[sec].mover) return sec;
+        const Sector& s = map.sectors[sec];
+        int n = (int)s.vertices.size();
+        float bt = 1e30f;
+        int bw = -1;
+        for(int w = 0; w < n; ++w) {
+            Vec2 a = s.vertices[w], b = s.vertices[(w + 1) % n];
+            float ex = b.x - a.x, ey = b.y - a.y;
+            float den = dx * ey - dy * ex;
+            if(std::fabs(den) < 1e-9f) continue;
+            float t = ((a.x - px) * ey - (a.y - py) * ex) / den;
+            float u = ((a.x - px) * dy - (a.y - py) * dx) / den;
+            if(t > 1e-4f && u >= 0.0f && u <= 1.0f && t < bt) {
+                bt = t;
+                bw = w;
+            }
+        }
+        if(bw < 0) break;
+        dist += bt;
+        if(dist > REACH) break;
+        int nb = s.neighbors[bw];
+        if(nb < 0) break; // hit a solid wall
+        sec = nb;
+        px += dx * (bt + 1e-3f);
+        py += dy * (bt + 1e-3f);
+    }
+    return -1;
+}
+
 void Player::jump() {
     if(onGround) {
         zVelocity = JUMP_VELOCITY;

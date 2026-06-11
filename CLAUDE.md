@@ -165,6 +165,18 @@ height is set in 3D. `N` adds a sprite at the cursor (resting on the sector floo
 `pointInSector`); Delete/X removes the hovered sprite (or vertex). Undo (`Z`)
 snapshots both sectors and sprites.
 
+**Doors & lifts.** A sector can be a `mover` (Sector in `Map.h`): a **door** (1)
+animates its **ceiling** between the floor (closed) and `moverRest` (the authored
+ceiling = open); a **lift** (2) animates its **floor** between `moverRest` (down)
+and the highest neighbouring floor (up). Endpoints are derived from geometry — no
+extra authoring. `updateMovers` (main.cpp, runs in both builds) eases the surface
+toward its target each frame; the `use` key (`U`) calls `Player::aimMoverSector`
+(a forward portal raycast, so no pick buffer needed) and toggles the one you face.
+A closed door's height gap is below `PLAYER_HEIGHT`, so the existing move/collision
+code blocks you until it opens — no special case. `C` in the 3D editor cycles the
+aimed sector none/door/lift. Map format: a `mover door|lift [speed]` line on the
+sector; the saver writes the surface's rest height (not its mid-animation value).
+
 ## Conventions
 
 - **Commit per logical change** (this repo's history is meant to be read step by step),

@@ -18,7 +18,7 @@ make play     # stripped build (-DEDITOR=0): no editor, no pick buffer; cleans f
 make clean
 ./portal_engine [mapfile] [--novsync] [--res WxH]   # mapfile defaults to ./map.txt;
                                         # --novsync uncaps FPS; --res sets the framebuffer
-                                        # (default 1280x960, 4:3). e.g. --res 1600x1200
+                                        # (default 1024x768, 4:3). e.g. --res 1600x1200
 ```
 
 The `EDITOR` macro (default 1, set in `Vec2.h`) `#if`-strips all editor input, the

@@ -258,10 +258,10 @@ static void updateMovers(Map& map, float dt) {
 int main(int argc, char** argv) {
     // Args: an optional map file (first non-flag arg) and flags. --novsync uncaps
     // the frame rate (renderer created without SDL_RENDERER_PRESENTVSYNC).
-    // --res WxH (or --res=WxH) sets the framebuffer size; default is 4:3 1280x960.
+    // --res WxH (or --res=WxH) sets the framebuffer size; default is 4:3 1024x768.
     std::string mapPath = "map.txt";
     bool vsync = true;
-    int resW = 1280, resH = 960;
+    int resW = 1024, resH = 768;
     for(int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         int w, h;

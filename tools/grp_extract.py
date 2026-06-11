@@ -62,7 +62,13 @@ def load_palette(dat):
     return pal
 
 
-def decode_art(art, palette, out_dir, lo, hi):
+# BUILD's transparency key is palette index 255. We export it as opaque magenta
+# so the "clear" texels are visible in the PNG and the engine can colour-key them
+# on every render path (walls/floors as well as sprites) — see Texture.h kColorKey.
+KEY_RGBA = b"\xff\x00\xff\xff"
+
+
+def decode_art(art, palette, out_dir, lo, hi, anims):
     ver, numtiles, start, end = struct.unpack_from("<iiii", art, 0)
     n = end - start + 1
     if n <= 0:
@@ -70,7 +76,7 @@ def decode_art(art, palette, out_dir, lo, hi):
     o = 16
     sizx = struct.unpack_from("<%dh" % n, art, o); o += 2*n
     sizy = struct.unpack_from("<%dh" % n, art, o); o += 2*n
-    o += 4*n                                 # skip picanm[]
+    picanm = struct.unpack_from("<%dI" % n, art, o); o += 4*n   # animation metadata
     written = 0
     for i in range(n):
         w, h = sizx[i], sizy[i]
@@ -86,13 +92,19 @@ def decode_art(art, palette, out_dir, lo, hi):
             for y in range(h):
                 idx = data[col + y]
                 j = (y*w + x)*4
-                if idx == 255:               # BUILD's transparency key
-                    rgba[j:j+4] = b"\x00\x00\x00\x00"
+                if idx == 255:               # BUILD's transparency key -> magenta
+                    rgba[j:j+4] = KEY_RGBA
                 else:
                     r, g, b = palette[idx]
                     rgba[j], rgba[j+1], rgba[j+2], rgba[j+3] = r, g, b, 255
         write_png(os.path.join(out_dir, "tile%04d.png" % tile), bytes(rgba), w, h)
         written += 1
+        # picanm: bits 0-5 = frame count, 6-7 = type (1 osc, 2 fwd, 3 bwd),
+        # 24-27 = speed. Frames are the consecutive tiles tile..tile+num.
+        pa = picanm[i]
+        num, atype, speed = pa & 0x3f, (pa >> 6) & 3, (pa >> 24) & 0xf
+        if num and atype:
+            anims.append((tile, num, atype, speed))
     return written
 
 
@@ -113,12 +125,22 @@ def main():
     if not arts:
         sys.exit("no TILESxxx.ART files in GRP")
 
-    total = 0
+    total, anims = 0, []
     for name in arts:
-        c = decode_art(grp[name], palette, out_dir, lo, hi)
+        c = decode_art(grp[name], palette, out_dir, lo, hi, anims)
         total += c
         print("  %-14s -> %d tiles" % (name, c))
     print("wrote %d PNGs to %s/" % (total, out_dir))
+
+    # Sidecar the engine reads to drive animated textures: "tile num type speed"
+    # per animated base tile (frames are tile..tile+num).
+    anims = [a for a in anims if lo <= a[0] <= hi]
+    anim_path = os.path.join(out_dir, "anim.txt")
+    with open(anim_path, "w") as f:
+        f.write("# animated tiles: base_tile num_frames type(1=osc 2=fwd 3=bwd) speed\n")
+        for tile, num, atype, speed in sorted(anims):
+            f.write("%d %d %d %d\n" % (tile, num, atype, speed))
+    print("wrote %d animated-tile entries to %s" % (len(anims), anim_path))
 
 
 if __name__ == "__main__":

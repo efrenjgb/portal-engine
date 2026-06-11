@@ -638,13 +638,29 @@ void Renderer::drawTextureBrowser(const std::vector<Texture>& pool, const std::v
         const Texture& t = pool[idx];
         int pad = 6, iw = cw - 2 * pad,
             ih = ch - 2 * pad - 10; // 10px reserved for the label
-        for(int yy = 0; yy < ih; ++yy) {
-            int sy = t.height ? yy * t.height / ih : 0;
-            for(int xx = 0; xx < iw; ++xx) {
-                int sx = t.width ? xx * t.width / iw : 0;
+        // Fit the texture inside iw x ih preserving its own aspect ratio (centred)
+        // so thumbnails aren't stretched to the cell shape (which is not square and
+        // changes with the window resolution).
+        int tw = t.width > 0 ? t.width : 1, th = t.height > 0 ? t.height : 1;
+        int dw, dh;
+        if(iw * th < ih * tw) {
+            dw = iw;
+            dh = th * iw / tw;
+        } // width-limited
+        else {
+            dh = ih;
+            dw = tw * ih / th;
+        } // height-limited
+        if(dw < 1) dw = 1;
+        if(dh < 1) dh = 1;
+        int offx = (iw - dw) / 2, offy = (ih - dh) / 2;
+        for(int yy = 0; yy < dh; ++yy) {
+            int sy = yy * th / dh;
+            for(int xx = 0; xx < dw; ++xx) {
+                int sx = xx * tw / dw;
                 uint32_t px = t.pixels.empty() ? 0xFF303030u : t.pixels[(size_t)sy * t.width + sx];
                 if((px >> 24) < 128) continue; // let backdrop show through
-                frameBuffer_[(size_t)(y0 + pad + yy) * W + (x0 + pad + xx)] =
+                frameBuffer_[(size_t)(y0 + pad + offy + yy) * W + (x0 + pad + offx + xx)] =
                     0xFF000000u | (px & 0xFFFFFF);
             }
         }

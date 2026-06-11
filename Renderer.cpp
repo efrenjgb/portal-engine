@@ -148,7 +148,9 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
         int idx = y * W + x;
         if(depth >= depthBuffer_[idx]) continue; // z-test: keep the nearer surface
         float fy = (y - yTopf) / span;
-        float v = (vTop + (vBot - vTop) * fy) / tx.vScale + tx.vOffset;
+        // v increases DOWNWARD to match image rows (row 0 = top); world heights
+        // grow upward, so negate — otherwise wall textures render upside down.
+        float v = -(vTop + (vBot - vTop) * fy) / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(su, v) : sampleBrick(base, su, v);
         if(img && isClear(c)) continue; // colour-key: read through to whatever's behind
         frameBuffer_[idx] = shade(c, fade);
@@ -398,8 +400,8 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
                     // pin a texel to the moving edge (the ceiling for a door's upper
                     // step, the floor for a lift's lower step) by offsetting v.
                     TextureTransform utx = wtx, ltx = wtx;
-                    if(ns.mover == 1) utx.vOffset += (ns.moverRest - ns.ceiling) / wtx.vScale;
-                    if(ns.mover == 2) ltx.vOffset += (ns.moverRest - ns.floor) / wtx.vScale;
+                    if(ns.mover == 1) utx.vOffset += (ns.ceiling - ns.moverRest) / wtx.vScale;
+                    if(ns.mover == 2) ltx.vOffset += (ns.floor - ns.moverRest) / wtx.vScale;
                     wallSpan(x, yaf, naf, sec.ceiling, ns.ceiling, wt, wb, u, sec.wallColor, dep,
                              wsurf, utx, wid, wlight);
                     wallSpan(x, nbf, ybf, ns.floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf,

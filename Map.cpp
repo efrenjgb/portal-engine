@@ -3,6 +3,7 @@
 //   sector <floor> <ceil> <floorcol> <ceilcol> <wallcol> [floorlight ceillight]
 //                                                         colours = RRGGBB hex
 //     wall <x> <y> <neighbour> [us vs uo vo [texId [light]]]   CCW; -1 = solid
+//     loop                      begin an inner hole loop (cutout) in this sector
 //     mover door|lift [speed]   makes the current sector a door/lift (see Sector)
 //   sprite <x> <y> <z> <radius> <height> <col> [texId]
 #include "Map.h"
@@ -122,6 +123,13 @@ std::optional<Map> loadMap(const std::string& path) {
                 return std::nullopt;
             }
             m.sectors[cur].ceilingIsSky = true;
+        } else if(!strcmp(kw, "loop")) { // begin an inner hole loop (cutout) in the sector
+            if(cur < 0) {
+                fprintf(stderr, "map:%d loop before sector\n", ln);
+                fclose(f);
+                return std::nullopt;
+            }
+            m.sectors[cur].loopStart.push_back((int)m.sectors[cur].vertices.size());
         } else if(!strcmp(kw, "mover")) {
             if(cur < 0) {
                 fprintf(stderr, "map:%d mover before sector\n", ln);
@@ -214,7 +222,12 @@ bool saveMap(const Map& m, const std::string& path) {
         if(s.floorLight != 1.0f || s.ceilingLight != 1.0f)
             fprintf(f, " %g %g", s.floorLight, s.ceilingLight);
         fprintf(f, "\n");
+        size_t loopK = 1; // emit a `loop` marker before each inner loop's walls
         for(size_t w = 0; w < s.vertices.size(); ++w) {
+            if(loopK < s.loopStart.size() && (int)w == s.loopStart[loopK]) {
+                fprintf(f, "  loop\n");
+                ++loopK;
+            }
             const TextureTransform& tx = s.wallTextures[w];
             int id = s.wallTextureIds[w];
             float wl = s.wallLight[w];

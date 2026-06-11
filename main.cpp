@@ -51,7 +51,7 @@ static VHit pickWall(const Map& m, float sc, float ox, float oy, int mx, int my,
         const Sector& S = m.sectors[s];
         int n = (int)S.vertices.size();
         for(int w = 0; w < n; ++w) {
-            Vec2 a = S.vertices[w], b = S.vertices[(w + 1) % n];
+            Vec2 a = S.vertices[w], b = S.vertices[S.wallEnd(w)];
             float ax = ox + a.x * sc, ay = oy - a.y * sc, bx = ox + b.x * sc, by = oy - b.y * sc;
             float ex = bx - ax, ey = by - ay, L2 = ex * ex + ey * ey;
             if(L2 < 1e-6f) continue;
@@ -98,17 +98,18 @@ static void splitWall(Map& m, int s, int w, Vec2 p) {
         S.wallTextures.insert(S.wallTextures.begin() + at + 1, S.wallTextures[at]);
         S.wallTextureIds.insert(S.wallTextureIds.begin() + at + 1, S.wallTextureIds[at]);
         S.wallLight.insert(S.wallLight.begin() + at + 1, S.wallLight[at]);
+        for(int& ls : S.loopStart) // shift any loop that starts after the insertion
+            if(ls > at) ++ls;
     };
     Sector& S = m.sectors[s];
-    int n = (int)S.vertices.size();
-    Vec2 a = S.vertices[w], b = S.vertices[(w + 1) % n];
+    Vec2 a = S.vertices[w], b = S.vertices[S.wallEnd(w)];
     int nb = S.neighbors[w];
     insertAt(S, w);
     if(nb >= 0) { // split the neighbour's matching (reversed) wall
         Sector& N = m.sectors[nb];
         int nn = (int)N.vertices.size();
         for(int i = 0; i < nn; ++i)
-            if(verticesEqual(N.vertices[i], b) && verticesEqual(N.vertices[(i + 1) % nn], a)) {
+            if(verticesEqual(N.vertices[i], b) && verticesEqual(N.vertices[N.wallEnd(i)], a)) {
                 insertAt(N, i);
                 break;
             }
@@ -123,8 +124,8 @@ static bool deleteVertex(Map& m, Vec2 p) {
     std::vector<std::pair<int, int>> hits;
     collectCoincident(m, p, hits);
     if(hits.empty()) return false;
-    for(auto& h : hits)
-        if((int)m.sectors[h.first].vertices.size() <= 3) return false;
+    for(auto& h : hits) // each affected loop must keep at least 3 vertices
+        if(m.sectors[h.first].loopSize(m.sectors[h.first].loopOf(h.second)) <= 3) return false;
     std::sort(hits.begin(), hits.end(), // erase high indices first
               [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
                   return a.second > b.second;
@@ -137,6 +138,8 @@ static bool deleteVertex(Map& m, Vec2 p) {
         S.wallTextures.erase(S.wallTextures.begin() + i);
         S.wallTextureIds.erase(S.wallTextureIds.begin() + i);
         S.wallLight.erase(S.wallLight.begin() + i);
+        for(int& ls : S.loopStart) // shift any loop that started after the removed vertex
+            if(ls > i) --ls;
     }
     return true;
 }
@@ -151,7 +154,7 @@ static void rebuildPortals(Map& m) {
         Sector& S = m.sectors[s];
         int n = (int)S.vertices.size();
         for(int w = 0; w < n; ++w) {
-            Vec2 a = S.vertices[w], b = S.vertices[(w + 1) % n];
+            Vec2 a = S.vertices[w], b = S.vertices[S.wallEnd(w)];
             int found = -1;
             for(int t = 0; t < ns && found < 0; ++t) {
                 if(t == s) continue;
@@ -159,7 +162,7 @@ static void rebuildPortals(Map& m) {
                 int nn = (int)N.vertices.size();
                 for(int i = 0; i < nn; ++i)
                     if(verticesEqual(N.vertices[i], b) &&
-                       verticesEqual(N.vertices[(i + 1) % nn], a)) {
+                       verticesEqual(N.vertices[N.wallEnd(i)], a)) {
                         found = t;
                         break;
                     }
@@ -168,12 +171,15 @@ static void rebuildPortals(Map& m) {
         }
     }
 }
-// point-in-polygon (even-odd rule) for inheriting a new sector's look.
+// point-in-polygon (even-odd rule) for inheriting a new sector's look. Loop-aware:
+// each wall's edge is taken within its own loop, so a point inside an inner hole
+// (CW loop) flips parity twice and reads as OUTSIDE the parent — i.e. it belongs
+// to the cutout sector, not the parent.
 static bool pointInSector(const Sector& S, Vec2 p) {
     bool in = false;
     int n = (int)S.vertices.size();
-    for(int i = 0, j = n - 1; i < n; j = i++) {
-        Vec2 a = S.vertices[i], b = S.vertices[j];
+    for(int w = 0; w < n; ++w) {
+        Vec2 a = S.vertices[w], b = S.vertices[S.wallEnd(w)];
         if(((a.y > p.y) != (b.y > p.y)) && (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x))
             in = !in;
     }
@@ -224,6 +230,82 @@ static bool addSector(Map& m, std::vector<Vec2> pts) {
     m.sectors.push_back(std::move(S));
     rebuildPortals(m);
     return true;
+}
+// Make `pts` a cutout inside sector `parent`: a new inner sector (CCW, inheriting
+// the parent's look/heights so it starts flush) plus an inner hole loop on the
+// parent (pts reversed = CW) that owns the reversed edges, so rebuildPortals bonds
+// them into portals both ways. Raise/lower the inner sector to get a pit/platform,
+// or pull its floor to its ceiling for a solid column.
+static bool addCutout(Map& m, std::vector<Vec2> pts, int parent) {
+    int n = (int)pts.size();
+    if(n < 3 || parent < 0 || parent >= (int)m.sectors.size()) return false;
+    double area2 = 0;
+    for(int i = 0; i < n; ++i) {
+        Vec2 a = pts[i], b = pts[(i + 1) % n];
+        area2 += (double)a.x * b.y - (double)b.x * a.y;
+    }
+    if(std::fabs(area2) < 0.5) return false;
+    if(area2 < 0) std::reverse(pts.begin(), pts.end()); // -> CCW for the inner sector
+
+    Sector& P = m.sectors[parent];
+    Sector I; // inner sector, flush with the parent until you change its heights
+    I.floor = P.floor;
+    I.ceiling = P.ceiling;
+    I.floorColor = P.floorColor;
+    I.ceilingColor = P.ceilingColor;
+    I.wallColor = P.wallColor;
+    I.floorLight = P.floorLight;
+    I.ceilingLight = P.ceilingLight;
+    I.floorTexture = P.floorTexture;
+    I.ceilingTexture = P.ceilingTexture;
+    I.floorTextureId = P.floorTextureId;
+    I.ceilingTextureId = P.ceilingTextureId;
+    I.vertices = pts;
+    I.neighbors.assign(n, -1);
+    I.wallTextures.assign(n, TextureTransform{});
+    I.wallTextureIds.assign(n, -1);
+    I.wallLight.assign(n, 1.0f);
+
+    // append the hole loop (pts reversed) to the parent
+    P.loopStart.push_back((int)P.vertices.size());
+    for(int i = n - 1; i >= 0; --i) {
+        P.vertices.push_back(pts[i]);
+        P.neighbors.push_back(-1);
+        P.wallTextures.push_back(TextureTransform{});
+        P.wallTextureIds.push_back(-1);
+        P.wallLight.push_back(1.0f);
+    }
+    m.sectors.push_back(std::move(I)); // (P is now dangling — don't use it after this)
+    rebuildPortals(m);
+    return true;
+}
+// Finish a drawn polygon: a loop fully inside one existing sector becomes a cutout
+// of it; anything else is a normal new sector. Returns 0 = invalid, 1 = sector,
+// 2 = cutout.
+static int addSectorOrCutout(Map& m, const std::vector<Vec2>& pts) {
+    if(pts.size() < 3) return 0;
+    Vec2 c{0, 0};
+    for(auto& p : pts) {
+        c.x += p.x;
+        c.y += p.y;
+    }
+    c.x /= pts.size();
+    c.y /= pts.size();
+    int host = -1;
+    for(int i = 0; i < (int)m.sectors.size(); ++i)
+        if(pointInSector(m.sectors[i], c)) {
+            host = i;
+            break;
+        }
+    bool inside = host >= 0;
+    if(inside)
+        for(auto& p : pts)
+            if(!pointInSector(m.sectors[host], p)) {
+                inside = false;
+                break;
+            }
+    if(inside) return addCutout(m, pts, host) ? 2 : 0;
+    return addSector(m, pts) ? 1 : 0;
 }
 #endif
 
@@ -424,7 +506,8 @@ int main(int argc, char** argv) {
            "it; N adds a sprite;\n"
            "                     click a wall to split in a vertex; coincide two walls to bond a "
            "portal;\n"
-           "                     B draws a new sector (click points, click the first to close)\n"
+           "                     B draws a new sector (click points, click first to close);\n"
+           "                       drawn fully inside a sector -> a cutout (pillar/recess)\n"
            "   P             : set player start to current position\n"
            "   K             : save edited map (to <mapfile>.save)\n");
 #endif
@@ -649,9 +732,11 @@ int main(int argc, char** argv) {
                         float dx = sx - mouseX, dy = sy - mouseY;
                         if(dx * dx + dy * dy < 100.0f) {
                             pushUndo();
-                            if(addSector(map, drawPts)) {
-                                printf("created sector %d\n", (int)map.sectors.size() - 1);
-                                showMessage("created sector " +
+                            int r = addSectorOrCutout(map, drawPts);
+                            if(r) {
+                                const char* what = r == 2 ? "cutout" : "sector";
+                                printf("created %s %d\n", what, (int)map.sectors.size() - 1);
+                                showMessage(std::string("created ") + what + " " +
                                             std::to_string((int)map.sectors.size() - 1));
                             } else {
                                 undo.pop_back();
@@ -769,9 +854,12 @@ int main(int argc, char** argv) {
                             if(drawing) {
                                 if(drawPts.size() >= 3) {
                                     pushUndo();
-                                    if(addSector(map, drawPts)) {
-                                        printf("created sector %d\n", (int)map.sectors.size() - 1);
-                                        showMessage("created sector " +
+                                    int r = addSectorOrCutout(map, drawPts);
+                                    if(r) {
+                                        const char* what = r == 2 ? "cutout" : "sector";
+                                        printf("created %s %d\n", what,
+                                               (int)map.sectors.size() - 1);
+                                        showMessage(std::string("created ") + what + " " +
                                                     std::to_string((int)map.sectors.size() - 1));
                                     } else {
                                         undo.pop_back();

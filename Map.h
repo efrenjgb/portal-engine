@@ -24,6 +24,27 @@ struct Sector {
     std::vector<TextureTransform> wallTextures; // parallel to vertices/neighbors
     std::vector<int> wallTextureIds;            // image-texture index, -1 = procedural
     std::vector<float> wallLight;               // per-wall brightness (1 = normal)
+
+    // A sector is a CCW outer polygon plus zero or more inner hole loops (CW) for
+    // cutouts (columns/pits/platforms). loopStart[k] is the first vertex index of
+    // loop k; loop 0 is the outer boundary and always starts at 0. The parallel
+    // arrays above stay one entry per wall across every loop. wallEnd(w) gives the
+    // far vertex of wall w, wrapping at its own loop's end (not the next loop's).
+    std::vector<int> loopStart{0};
+    int loopOf(int w) const { // which loop vertex/wall w belongs to
+        for(int k = (int)loopStart.size() - 1; k >= 0; --k)
+            if(w >= loopStart[k]) return k;
+        return 0;
+    }
+    int loopBegin(int k) const { return loopStart[k]; }
+    int loopEnd(int k) const {
+        return (k + 1 < (int)loopStart.size()) ? loopStart[k + 1] : (int)vertices.size();
+    }
+    int loopSize(int k) const { return loopEnd(k) - loopBegin(k); }
+    int wallEnd(int w) const { // far vertex of wall w, wrapping within w's own loop
+        int k = loopOf(w);
+        return (w + 1 < loopEnd(k)) ? w + 1 : loopBegin(k);
+    }
     TextureTransform floorTexture, ceilingTexture;
     int floorTextureId = -1, ceilingTextureId = -1;
     bool ceilingIsSky = false; // render ceiling as a parallax sky

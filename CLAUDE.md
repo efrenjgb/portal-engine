@@ -165,6 +165,20 @@ height is set in 3D. `N` adds a sprite at the cursor (resting on the sector floo
 `pointInSector`); Delete/X removes the hovered sprite (or vertex). Undo (`Z`)
 snapshots both sectors and sprites.
 
+**Inner loops & cutouts.** A `Sector` is an outer CCW polygon plus zero or more
+inner **hole loops** (CW) — `loopStart[k]` marks each loop's first vertex; the
+parallel wall arrays stay one-per-wall across all loops. `Sector::wallEnd(w)` gives
+a wall's far vertex wrapping within *its own* loop, and every wall-iteration site
+(renderer, collision, `rebuildPortals`, `pointInSector`, editor) uses it — so it's a
+no-op for ordinary single-loop sectors. Drawing a polygon (`B`) **fully inside** an
+existing sector makes a **cutout** (`addCutout`): the parent gains a hole loop
+(`pts` reversed) and a new inner sector (CCW, inheriting the parent's look) is
+created; `rebuildPortals` bonds them into portals both ways. Then raise the inner
+floor to its ceiling for a **column**, or lower the inner ceiling for a **recess**.
+Map format: a `loop` line begins an inner loop. **Limitation:** a *sunken pit*
+(inner floor below the parent floor) renders wrong — the parent floor casts over the
+hole; needs a floor-clip-to-hole pass (not yet done).
+
 **Doors & lifts.** A sector can be a `mover` (Sector in `Map.h`): a **door** (1)
 animates its **ceiling** between the floor (closed) and `moverRest` (the authored
 ceiling = open); a **lift** (2) animates its **floor** between `moverRest` (down)

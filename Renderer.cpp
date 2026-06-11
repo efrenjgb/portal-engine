@@ -51,8 +51,8 @@ static float sectorLightAt(const Map& m, Vec2 p) {
     for(const Sector& S : m.sectors) {
         bool in = false;
         int n = (int)S.vertices.size();
-        for(int i = 0, j = n - 1; i < n; j = i++) {
-            Vec2 a = S.vertices[i], b = S.vertices[j];
+        for(int w = 0; w < n; ++w) { // loop-aware so inner holes read as outside
+            Vec2 a = S.vertices[w], b = S.vertices[S.wallEnd(w)];
             if(((a.y > p.y) != (b.y > p.y)) &&
                (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x))
                 in = !in;
@@ -258,7 +258,7 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
         }
 
         for(int s = 0; s < n; ++s) {
-            Vec2 a = sec.vertices[s], b = sec.vertices[(s + 1) % n];
+            Vec2 a = sec.vertices[s], b = sec.vertices[sec.wallEnd(s)];
 
             float vx1 = a.x - P.x, vy1 = a.y - P.y;
             float vx2 = b.x - P.x, vy2 = b.y - P.y;
@@ -501,7 +501,7 @@ void Renderer::drawMinimap(const Map& map, const Camera& P, SurfaceRef aim, Vec2
         const Sector& s = map.sectors[i];
         int np = (int)s.vertices.size();
         for(int w = 0; w < np; ++w) {
-            Vec2 a = s.vertices[w], b = s.vertices[(w + 1) % np];
+            Vec2 a = s.vertices[w], b = s.vertices[s.wallEnd(w)];
             uint32_t c = (s.neighbors[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
             if(i == aim.sector) c = 0xFFff30ff; // aimed sector
             if(aim.kind == SurfaceRef::Wall && i == aim.sector && w == aim.wall)
@@ -704,7 +704,7 @@ void Renderer::drawMapEditor(const Map& m, float sc, float ox, float oy, int hov
         const Sector& S = m.sectors[s];
         int n = (int)S.vertices.size();
         for(int w = 0; w < n; ++w) {
-            Vec2 a = S.vertices[w], b = S.vertices[(w + 1) % n];
+            Vec2 a = S.vertices[w], b = S.vertices[S.wallEnd(w)];
             uint32_t c = (S.neighbors[w] >= 0) ? 0xFF35c06a : 0xFFb0b8c0;
             if(s == hwSec && w == hwWall) c = 0xFFffe020;
             drawLine(SX(a.x), SY(a.y), SX(b.x), SY(b.y), c);

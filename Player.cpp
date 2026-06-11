@@ -19,7 +19,7 @@ void Player::move(const Map& map, float dx, float dy) {
         const Sector& sec = map.sectors[sector];
         int n = (int)sec.vertices.size(), hit = -1;
         for(int s = 0; s < n; ++s) {
-            Vec2 a = sec.vertices[s], b = sec.vertices[(s + 1) % n];
+            Vec2 a = sec.vertices[s], b = sec.vertices[sec.wallEnd(s)];
             if(segCross(camera.x, camera.y, camera.x + dx, camera.y + dy, a.x, a.y, b.x, b.y)) {
                 hit = s;
                 break;
@@ -27,7 +27,7 @@ void Player::move(const Map& map, float dx, float dy) {
         }
         if(hit < 0) break;
 
-        Vec2 a = sec.vertices[hit], b = sec.vertices[(hit + 1) % n];
+        Vec2 a = sec.vertices[hit], b = sec.vertices[sec.wallEnd(hit)];
         int nb = sec.neighbors[hit];
         bool passable = false;
         if(nb >= 0) {
@@ -53,7 +53,7 @@ void Player::keepInside(const Map& map) {
     const Sector& sec = map.sectors[sector];
     int n = (int)sec.vertices.size();
     for(int s = 0; s < n; ++s) {
-        Vec2 a = sec.vertices[s], b = sec.vertices[(s + 1) % n];
+        Vec2 a = sec.vertices[s], b = sec.vertices[sec.wallEnd(s)];
         // Solid walls keep a full body radius; portals only a hair, so you can
         // walk right through them (the renderer's frustum clip handles being on
         // top of a portal, so no larger standoff is needed).
@@ -106,7 +106,7 @@ int Player::pickSector(const Map& map) const {
         float bt = 1e30f;
         int bw = -1;
         for(int w = 0; w < n; ++w) {
-            Vec2 a = s.vertices[w], b = s.vertices[(w + 1) % n];
+            Vec2 a = s.vertices[w], b = s.vertices[s.wallEnd(w)];
             float ex = b.x - a.x, ey = b.y - a.y;
             float den = dx * ey - dy * ex;
             if(std::fabs(den) < 1e-9f) continue;
@@ -141,7 +141,7 @@ int Player::aimMoverSector(const Map& map) const {
         float bt = 1e30f;
         int bw = -1;
         for(int w = 0; w < n; ++w) {
-            Vec2 a = s.vertices[w], b = s.vertices[(w + 1) % n];
+            Vec2 a = s.vertices[w], b = s.vertices[s.wallEnd(w)];
             float ex = b.x - a.x, ey = b.y - a.y;
             float den = dx * ey - dy * ex;
             if(std::fabs(den) < 1e-9f) continue;

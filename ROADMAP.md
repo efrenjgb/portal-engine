@@ -11,7 +11,7 @@ across sessions. Done items kept for context; open items grouped by theme.
   portals, grid snap (Alt bypass), undo, add/move/delete sprites
 - 3D editor: per-surface texture wrap/pan, texture cycle (`N`), texture **picker**
   (`B`) browsing imported tiles with All/Solid/Masked filter, sky toggle (`O`)
-- **Doors / lifts + `use` key** (`U`): tagged sectors (`C` in 3D editor) animate a
+- **Doors / lifts + `use` key** (`E`): tagged sectors (`C` in 3D editor) animate a
   surface on use — door drives the ceiling, lift the floor; works in `make play`
 - Per-surface **lighting** (per-wall + floor/ceiling), `Y`/`H`
 - Height edit by camera pitch / aimed surface (`T`/`G`)

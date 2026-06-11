@@ -170,7 +170,7 @@ animates its **ceiling** between the floor (closed) and `moverRest` (the authore
 ceiling = open); a **lift** (2) animates its **floor** between `moverRest` (down)
 and the highest neighbouring floor (up). Endpoints are derived from geometry — no
 extra authoring. `updateMovers` (main.cpp, runs in both builds) eases the surface
-toward its target each frame; the `use` key (`U`) calls `Player::aimMoverSector`
+toward its target each frame; the `use` key (`E`) calls `Player::aimMoverSector`
 (a forward portal raycast, so no pick buffer needed) and toggles the one you face.
 A closed door's height gap is below `PLAYER_HEIGHT`, so the existing move/collision
 code blocks you until it opens — no special case. `C` in the 3D editor cycles the

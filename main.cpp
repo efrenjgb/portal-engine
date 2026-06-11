@@ -397,10 +397,9 @@ int main(int argc, char** argv) {
            "  -------------------------------\n"
            "   WASD / arrows : move & strafe  (hold Shift to sprint)\n"
            "   mouse         : look (turn + pitch)\n"
-           "   Q / E         : turn left / right\n"
            "   R / F         : look up / down\n"
            "   Space         : jump\n"
-           "   U             : use (open/close the door or lift you're facing)\n"
+           "   E             : use (open/close the door or lift you're facing)\n"
            "   M             : release / recapture mouse\n",
            EDITOR ? "" : "  [play build]");
 #if EDITOR
@@ -925,8 +924,6 @@ int main(int argc, char** argv) {
             // ---- look ----
             player.camera.angle -= mdx * 0.0030f;
             player.camera.pitch += mdy * 0.0018f;
-            if(ks[SDL_SCANCODE_Q]) player.camera.angle += 1.8f * dt;
-            if(ks[SDL_SCANCODE_E]) player.camera.angle -= 1.8f * dt;
             if(ks[SDL_SCANCODE_R]) player.camera.pitch -= 1.2f * dt;
             if(ks[SDL_SCANCODE_F]) player.camera.pitch += 1.2f * dt;
             player.camera.pitch = clampf(player.camera.pitch, -0.55f, 0.55f);
@@ -949,12 +946,12 @@ int main(int argc, char** argv) {
             player.keepInside(map);
 
             // ---- doors / lifts ----
-            // `use` (U, edge-triggered) toggles the door/lift the crosshair points
+            // `use` (E, edge-triggered) toggles the door/lift the crosshair points
             // at; every mover then animates. A closed door's height gap is below
             // player height, so the move/collision code already blocks you until it
             // opens. Runs in both builds (aimMoverSector needs no pick buffer).
             static bool usePrev = false;
-            bool useNow = ks[SDL_SCANCODE_U];
+            bool useNow = ks[SDL_SCANCODE_E];
             if(useNow && !usePrev) {
                 int ms = player.aimMoverSector(map);
                 if(ms >= 0) {

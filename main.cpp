@@ -295,7 +295,7 @@ int main(int argc, char** argv) {
     player.camera.z = map.sectors[player.sector].floor + PLAYER_EYE_HEIGHT;
     player.camera.update();
 
-    if(SDL_Init(SDL_INIT_VIDEO) != 0) {
+    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
@@ -400,7 +400,8 @@ int main(int argc, char** argv) {
            "   R / F         : look up / down\n"
            "   Space         : jump\n"
            "   E             : use (open/close the door or lift you're facing)\n"
-           "   M             : release / recapture mouse\n",
+           "   M             : release / recapture mouse\n"
+           "   gamepad       : L-stick move, R-stick look, A jump, X use, R-trigger sprint\n",
            EDITOR ? "" : "  [play build]");
 #if EDITOR
     printf("   Tab           : toggle edit mode\n"
@@ -548,12 +549,28 @@ int main(int argc, char** argv) {
     };
 #endif
 
+    // Optional gamepad: left stick moves, right stick looks, A jumps, X uses,
+    // right trigger / L3 sprints. Hot-plug supported. Editor keys stay on keyboard.
+    SDL_GameController* pad = nullptr;
+    auto openPad = [&]() {
+        for(int i = 0; i < SDL_NumJoysticks(); ++i)
+            if(SDL_IsGameController(i) && (pad = SDL_GameControllerOpen(i))) {
+                printf("gamepad: %s\n", SDL_GameControllerName(pad));
+                break;
+            }
+    };
+    openPad();
+
     while(running) {
         float mdx = 0, mdy = 0;
         SDL_Event e;
         while(SDL_PollEvent(&e)) {
             if(e.type == SDL_QUIT) running = false;
-            else if(e.type == SDL_MOUSEMOTION) {
+            else if(e.type == SDL_CONTROLLERDEVICEADDED || e.type == SDL_CONTROLLERDEVICEREMOVED) {
+                if(pad) SDL_GameControllerClose(pad); // re-scan on any change
+                pad = nullptr;
+                openPad();
+            } else if(e.type == SDL_MOUSEMOTION) {
 #if EDITOR
                 if(browsing || mapView) {
                     mouseX = e.motion.x;
@@ -930,23 +947,44 @@ int main(int argc, char** argv) {
         } else
 #endif
         {
+            // ---- gamepad (axes 0 if no pad / inside deadzone) ----
+            float padLX = 0, padLY = 0, padRX = 0, padRY = 0;
+            bool padJump = false, padUse = false, padSprint = false;
+            if(pad) {
+                auto axis = [&](SDL_GameControllerAxis a) {
+                    float n = SDL_GameControllerGetAxis(pad, a) / 32767.0f;
+                    return std::fabs(n) < 0.22f ? 0.0f : n; // deadzone
+                };
+                padLX = axis(SDL_CONTROLLER_AXIS_LEFTX);
+                padLY = axis(SDL_CONTROLLER_AXIS_LEFTY);
+                padRX = axis(SDL_CONTROLLER_AXIS_RIGHTX);
+                padRY = axis(SDL_CONTROLLER_AXIS_RIGHTY);
+                padJump = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A);
+                padUse = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_X);
+                padSprint = SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSTICK) ||
+                            SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 8000;
+            }
+
             // ---- look ----
-            player.camera.angle -= mdx * 0.0030f;
-            player.camera.pitch += mdy * 0.0018f;
+            player.camera.angle -= mdx * 0.0030f + padRX * 2.6f * dt;
+            player.camera.pitch += mdy * 0.0018f + padRY * 1.8f * dt;
             if(ks[SDL_SCANCODE_R]) player.camera.pitch -= 1.2f * dt;
             if(ks[SDL_SCANCODE_F]) player.camera.pitch += 1.2f * dt;
             player.camera.pitch = clampf(player.camera.pitch, -0.55f, 0.55f);
             player.camera.update();
 
             // ---- move ----
-            float fwd = 0, str = 0;
+            float fwd = -padLY, str = padLX; // left stick (analog)
             if(ks[SDL_SCANCODE_W] || ks[SDL_SCANCODE_UP]) fwd += 1;
             if(ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_DOWN]) fwd -= 1;
             if(ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT]) str += 1;
             if(ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT]) str -= 1;
-            if(fwd || str) {
+            fwd = clampf(fwd, -1.0f, 1.0f); // keep stick+keys within unit speed
+            str = clampf(str, -1.0f, 1.0f);
+            if(fwd != 0 || str != 0) {
                 float sp = MOVE_SPEED * dt;
-                if(ks[SDL_SCANCODE_LSHIFT] || ks[SDL_SCANCODE_RSHIFT]) sp *= SPRINT_MULT; // sprint
+                if(ks[SDL_SCANCODE_LSHIFT] || ks[SDL_SCANCODE_RSHIFT] || padSprint)
+                    sp *= SPRINT_MULT; // sprint
                 float dx = (player.camera.yawCos * fwd + player.camera.yawSin * str) * sp;
                 float dy = (player.camera.yawSin * fwd - player.camera.yawCos * str) * sp;
                 player.move(map, dx, dy);
@@ -959,8 +997,12 @@ int main(int argc, char** argv) {
             // at; every mover then animates. A closed door's height gap is below
             // player height, so the move/collision code already blocks you until it
             // opens. Runs in both builds (aimMoverSector needs no pick buffer).
+            static bool jumpPrev = false; // gamepad A jumps (edge-triggered)
+            if(padJump && !jumpPrev) player.jump();
+            jumpPrev = padJump;
+
             static bool usePrev = false;
-            bool useNow = ks[SDL_SCANCODE_E];
+            bool useNow = ks[SDL_SCANCODE_E] || padUse;
             if(useNow && !usePrev) {
                 int ms = player.aimMoverSector(map);
                 if(ms >= 0) {
@@ -1151,6 +1193,7 @@ int main(int argc, char** argv) {
     }
 
     SDL_DestroyTexture(tex);
+    if(pad) SDL_GameControllerClose(pad);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     SDL_Quit();

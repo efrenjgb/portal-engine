@@ -7,7 +7,8 @@ constexpr float PLAYER_EYE_HEIGHT = 1.62f; // eye height above the floor
 constexpr float MAX_STEP = 0.51f;          // tallest step you can walk up
 constexpr float PLAYER_HEIGHT = 1.70f;     // min ceiling clearance to fit through a portal
 constexpr float PLAYER_RADIUS = 0.35f;     // collision radius off walls
-constexpr float MOVE_SPEED = 5.1f;         // metres / second
+constexpr float MOVE_SPEED = 8.0f;         // metres / second (hold Shift to sprint)
+constexpr float SPRINT_MULT = 1.75f;       // Shift multiplier on MOVE_SPEED
 constexpr float GRAVITY = 20.0f;           // metres / second^2
 constexpr float JUMP_VELOCITY = 5.5f;      // initial jump speed (~0.75 m peak)
 

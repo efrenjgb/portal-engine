@@ -7,6 +7,9 @@
 #include <utility>
 #include <algorithm>
 #include <vector>
+#include <map>
+#include <array>
+#include <fstream>
 #include <filesystem>
 #include "Map.h"
 #include "Texture.h"
@@ -227,11 +230,23 @@ static bool addSector(Map& m, std::vector<Vec2> pts) {
 int main(int argc, char** argv) {
     // Args: an optional map file (first non-flag arg) and flags. --novsync uncaps
     // the frame rate (renderer created without SDL_RENDERER_PRESENTVSYNC).
+    // --res WxH (or --res=WxH) sets the framebuffer size; default is 4:3 1280x960.
     std::string mapPath = "map.txt";
     bool vsync = true;
+    int resW = 1280, resH = 960;
     for(int i = 1; i < argc; ++i) {
-        if(std::string(argv[i]) == "--novsync") vsync = false;
-        else mapPath = argv[i];
+        std::string a = argv[i];
+        int w, h;
+        if(a == "--novsync") vsync = false;
+        else if(a == "--res" && i + 1 < argc && sscanf(argv[++i], "%dx%d", &w, &h) == 2 && w > 0 &&
+                h > 0) {
+            resW = w;
+            resH = h;
+        } else if(a.rfind("--res=", 0) == 0 && sscanf(a.c_str() + 6, "%dx%d", &w, &h) == 2 &&
+                  w > 0 && h > 0) {
+            resW = w;
+            resH = h;
+        } else if(a.rfind("--", 0) != 0) mapPath = a;
     }
     auto loaded = loadMap(mapPath);
     if(!loaded) return 1;
@@ -256,17 +271,17 @@ int main(int argc, char** argv) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
-    const int W = Renderer::W, H = Renderer::H;
+    const int W = resW, H = resH;
     SDL_Window* win = SDL_CreateWindow("Build-style portal engine (C++)", SDL_WINDOWPOS_CENTERED,
                                        SDL_WINDOWPOS_CENTERED, W, H, 0);
     Uint32 renFlags = SDL_RENDERER_ACCELERATED | (vsync ? SDL_RENDERER_PRESENTVSYNC : 0u);
     SDL_Renderer* ren = SDL_CreateRenderer(win, -1, renFlags);
-    printf("vsync %s\n", vsync ? "on" : "off (--novsync)");
+    printf("resolution %dx%d  vsync %s\n", resW, resH, vsync ? "on" : "off (--novsync)");
     SDL_Texture* tex =
         SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, W, H);
     SDL_SetRelativeMouseMode(SDL_TRUE);
 
-    Renderer renderer;
+    Renderer renderer(resW, resH);
 
     // Load image textures referenced by the map (empty entry => procedural).
     std::vector<Texture> texSet;
@@ -276,9 +291,83 @@ int main(int argc, char** argv) {
     }
     renderer.setTextures(&texSet);
 
+    // "<dir>/tileNNNN.png" -> NNNN (the BUILD tile number), or -1 if not a tile.
+    auto tileNumOf = [](const std::string& p) -> int {
+        size_t s = p.rfind("tile");
+        if(s == std::string::npos || s + 8 > p.size()) return -1;
+        int n = 0;
+        for(int k = 0; k < 4; ++k) {
+            char c = p[s + 4 + k];
+            if(c < '0' || c > '9') return -1;
+            n = n * 10 + (c - '0');
+        }
+        return n;
+    };
+    auto dirOf = [](const std::string& p) {
+        size_t s = p.find_last_of('/');
+        return s == std::string::npos ? std::string(".") : p.substr(0, s);
+    };
+
+    // Animated textures (BUILD picanm). anims[] are the cycles; animOf[i] maps
+    // texSet[i] -> an index in anims (-1 = static). Frame tiles are loaded into
+    // texSet (and map.textures, to keep them 1:1) so they round-trip on save.
+    std::vector<TexAnim> anims;
+    std::vector<int> animOf(texSet.size(), -1);
+    std::map<int, std::array<int, 3>> animMeta; // duke tile -> {num, type, speed}
+    {
+        std::string dukeDir;
+        for(const std::string& p : map.textures)
+            if(tileNumOf(p) >= 0) {
+                dukeDir = dirOf(p);
+                break;
+            }
+        if(!dukeDir.empty()) {
+            std::ifstream af(dukeDir + "/anim.txt");
+            std::string line;
+            while(std::getline(af, line)) {
+                if(line.empty() || line[0] == '#') continue;
+                int tile, num, type, speed;
+                if(sscanf(line.c_str(), "%d %d %d %d", &tile, &num, &type, &speed) == 4)
+                    animMeta[tile] = {num, type, speed};
+            }
+        }
+    }
+    // load a frame tile into texSet/map.textures (deduped), return its id
+    auto loadFrame = [&](const std::string& path) -> int {
+        for(int i = 0; i < (int)map.textures.size(); ++i)
+            if(map.textures[i] == path) return i;
+        auto t = loadImage(path);
+        map.textures.push_back(path);
+        texSet.push_back(t ? std::move(*t) : Texture{});
+        animOf.push_back(-1);
+        return (int)texSet.size() - 1;
+    };
+    // If texSet[id] is an animated base tile, load its frames and record the cycle.
+    // Idempotent and usable both at load and when a tile is picked in the editor.
+    auto setupAnim = [&](int id) {
+        if(id < 0 || id >= (int)animOf.size() || animOf[id] >= 0) return;
+        int tile = tileNumOf(map.textures[id]);
+        auto it = (tile >= 0) ? animMeta.find(tile) : animMeta.end();
+        if(it == animMeta.end()) return;
+        TexAnim a;
+        a.type = it->second[1];
+        a.speed = it->second[2];
+        std::string dir = dirOf(map.textures[id]);
+        char buf[256];
+        for(int f = 0; f <= it->second[0]; ++f) { // tile..tile+num inclusive
+            snprintf(buf, sizeof buf, "%s/tile%04d.png", dir.c_str(), tile + f);
+            a.frames.push_back(loadFrame(buf));
+        }
+        anims.push_back(std::move(a));
+        animOf[id] = (int)anims.size() - 1;
+        renderer.setTextures(&texSet); // may have grown with frame tiles
+    };
+    for(int i = (int)map.textures.size() - 1; i >= 0; --i) setupAnim(i);
+    renderer.setAnimations(&anims, &animOf);
+
     printf("\n  Build-style portal engine (C++)%s\n"
            "  -------------------------------\n"
-           "   WASD / arrows : move & strafe\n"
+           "   WASD / arrows : move & strafe  (hold Shift to sprint)\n"
            "   mouse         : look (turn + pitch)\n"
            "   Q / E         : turn left / right\n"
            "   R / F         : look up / down\n"
@@ -290,12 +379,13 @@ int main(int argc, char** argv) {
            "     T / G       :   raise / lower the aimed SPRITE's height, else the aimed sector's\n"
            "                       CEILING (look up) or FLOOR (look down)\n"
            "     Y / H       :   brighten / darken the aimed wall / floor / ceiling (lighting)\n"
-           "     [ / ]       :   shrink / grow texture on aimed surface\n"
+           "     [ / ]       :   shrink / grow texture on aimed surface, or resize aimed "
+           "SPRITE\n"
            "     ; / '       :   pan texture horizontally\n"
            "     , / .       :   pan texture vertically\n"
            "   N             :   cycle image texture on aimed surface\n"
            "   B             :   browse + pick a texture for the aimed wall/sprite (F: "
-           "all/solid/masked)\n"
+           "solid/masked)\n"
            "   O             :   toggle sky backdrop on aimed ceiling\n"
            "   Enter         : 2D map view  (G grid snap, hold Alt to bypass | Z undo | Del/X "
            "delete vertex/sprite)\n"
@@ -372,18 +462,15 @@ int main(int argc, char** argv) {
     int targetSprite = -1;                // what the picker assigns to
     std::vector<std::string> browsePaths; // textures/duke/*.png (lazy-loaded)
     std::vector<Texture> browseTex;
-    std::vector<char> browseMasked; // true = has transparency (sprite-like)
+    std::vector<char> browseMasked; // true = has magenta-key texels (masked)
     std::vector<int> browseView;    // pool indices passing the active filter
-    int browseFilter = 0;           // 0 = all, 1 = solid (walls), 2 = masked (sprites)
+    int browseFilter = 0;           // 0 = solid (walls), 1 = masked (magenta-keyed)
     bool browseLoaded = false;
-    auto filterName = [&] {
-        return browseFilter == 1 ? "SOLID" : browseFilter == 2 ? "MASKED" : "ALL";
-    };
+    auto filterName = [&] { return browseFilter == 1 ? "MASKED" : "SOLID"; };
     auto rebuildView = [&] {
         browseView.clear();
         for(int i = 0; i < (int)browseTex.size(); ++i)
-            if(browseFilter == 0 || (browseFilter == 1) == (!browseMasked[i]))
-                browseView.push_back(i);
+            if((browseFilter == 1) == (bool)browseMasked[i]) browseView.push_back(i);
         browsePage = 0;
     };
     auto loadBrowse = [&]() {
@@ -397,10 +484,10 @@ int main(int argc, char** argv) {
         for(auto& p : browsePaths) {
             auto t = loadImage(p);
             Texture tex = t ? std::move(*t) : Texture{};
-            // classify: a meaningful fraction of transparent texels => sprite-like
+            // classify: a meaningful fraction of magenta-key texels => masked
             size_t clear = 0;
             for(uint32_t px : tex.pixels)
-                if((px >> 24) < 128) ++clear;
+                if(isClear(px)) ++clear;
             bool masked = !tex.pixels.empty() && clear * 100 > tex.pixels.size() * 5; // >5% clear
             browseMasked.push_back(masked ? 1 : 0);
             browseTex.push_back(std::move(tex));
@@ -415,8 +502,20 @@ int main(int argc, char** argv) {
         auto t = loadImage(path);
         map.textures.push_back(path);
         texSet.push_back(t ? std::move(*t) : Texture{});
+        animOf.push_back(-1);          // keep animOf 1:1 with texSet (static by default)
         renderer.setTextures(&texSet); // vector may have reallocated
         return (int)texSet.size() - 1;
+    };
+    // Size a sprite from its texture's pixel dimensions so the art isn't distorted.
+    // k is world units per texel, picked so a ~64px tile ≈ the default sprite height
+    // for this map's scale; resize per-sprite in 3D with [ / ] afterwards.
+    auto fitSprite = [&](Sprite& sp, int texId) {
+        if(texId < 0 || texId >= (int)texSet.size()) return;
+        const Texture& t = texSet[texId];
+        if(t.width <= 0 || t.height <= 0) return;
+        const float k = 0.018f;
+        sp.height = t.height * k;
+        sp.radius = t.width * k * 0.5f;
     };
 #endif
 
@@ -457,10 +556,12 @@ int main(int argc, char** argv) {
                         int real = browseView[vi];
                         pushUndo();
                         int tid = ensureTexture(browsePaths[real]);
-                        if(targetSprite >= 0 && targetSprite < (int)map.sprites.size())
+                        setupAnim(tid); // animate immediately if it's an animated tile
+                        if(targetSprite >= 0 && targetSprite < (int)map.sprites.size()) {
                             map.sprites[targetSprite].textureId = tid;
-                        else if(pickTarget.sector >= 0 &&
-                                pickTarget.sector < (int)map.sectors.size()) {
+                            fitSprite(map.sprites[targetSprite], tid); // size to the texture
+                        } else if(pickTarget.sector >= 0 &&
+                                  pickTarget.sector < (int)map.sectors.size()) {
                             Sector& s = map.sectors[pickTarget.sector];
                             if(pickTarget.kind == SurfaceRef::Wall &&
                                pickTarget.wall < (int)s.wallTextureIds.size())
@@ -558,7 +659,7 @@ int main(int argc, char** argv) {
                         browsing = false;
                         SDL_SetRelativeMouseMode(mouseGrabbed ? SDL_TRUE : SDL_FALSE);
                     } else if(k == SDLK_f) {
-                        browseFilter = (browseFilter + 1) % 3;
+                        browseFilter = (browseFilter + 1) % 2;
                         rebuildView();
                         showMessage(std::string("filter: ") + filterName());
                     } else if(k == SDLK_RIGHT || k == SDLK_DOWN || k == SDLK_PAGEDOWN)
@@ -587,8 +688,8 @@ int main(int argc, char** argv) {
                             }
                             loadBrowse();
                             browseFilter = (a.kind == SurfaceRef::Sprite)
-                                               ? 2
-                                               : 1; // sprite->masked, surface->solid
+                                               ? 1
+                                               : 0; // sprite->masked, surface->solid
                             rebuildView();
                             browsing = true;
                             browsePage = 0;
@@ -743,6 +844,7 @@ int main(int argc, char** argv) {
         float dt = (nowt - prev) / 1000.0f;
         if(dt > 0.0f) fps += (1.0f / dt - fps) * 0.1f; // EMA from the true frame time
         if(dt > 0.05f) dt = 0.05f;
+        renderer.advanceAnim(dt); // drive animated textures off real frame time
 #if EDITOR
         for(auto& t : toasts) t.ttl -= dt; // expire transient messages
         toasts.erase(std::remove_if(toasts.begin(), toasts.end(),
@@ -789,6 +891,7 @@ int main(int argc, char** argv) {
             if(ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT]) str -= 1;
             if(fwd || str) {
                 float sp = MOVE_SPEED * dt;
+                if(ks[SDL_SCANCODE_LSHIFT] || ks[SDL_SCANCODE_RSHIFT]) sp *= SPRINT_MULT; // sprint
                 float dx = (player.camera.yawCos * fwd + player.camera.yawSin * str) * sp;
                 float dy = (player.camera.yawSin * fwd - player.camera.yawCos * str) * sp;
                 player.move(map, dx, dy);
@@ -870,6 +973,22 @@ int main(int argc, char** argv) {
                         if(ks[SDL_SCANCODE_PERIOD]) tx->vOffset += pan;
                         if(ks[SDL_SCANCODE_COMMA]) tx->vOffset -= pan;
                     }
+                }
+                // [ / ] resize the aimed sprite (uniform, so the texture aspect holds)
+                if(aim.kind == SurfaceRef::Sprite && aim.sprite >= 0 &&
+                   aim.sprite < (int)map.sprites.size()) {
+                    Sprite& sp = map.sprites[aim.sprite];
+                    float sf = 1.0f + 1.5f * dt;
+                    if(ks[SDL_SCANCODE_RIGHTBRACKET]) {
+                        sp.radius *= sf;
+                        sp.height *= sf;
+                    }
+                    if(ks[SDL_SCANCODE_LEFTBRACKET]) {
+                        sp.radius /= sf;
+                        sp.height /= sf;
+                    }
+                    sp.radius = clampf(sp.radius, 0.05f, 8.0f);
+                    sp.height = clampf(sp.height, 0.1f, 16.0f);
                 }
             }
             // report the targeted surface when it changes (groundwork for texturing)

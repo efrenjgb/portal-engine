@@ -63,9 +63,9 @@ static float sectorLightAt(const Map& m, Vec2 p) {
 }
 
 // ---- Renderer --------------------------------------------------------------
-Renderer::Renderer()
-    : focalLength_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)), frameBuffer_(W * H),
-      depthBuffer_(W * H),
+Renderer::Renderer(int w, int h)
+    : W(w), H(h), focalLength_((W / 2.0f) / std::tan(0.5f * 90.0f * PI_F / 180.0f)),
+      frameBuffer_(W * H), depthBuffer_(W * H),
 #if EDITOR
       pickBuffer_(W * H),
 #endif
@@ -98,7 +98,33 @@ void Renderer::drawLine(int x0, int y0, int x1, int y1, uint32_t c) {
 }
 
 // Choose the image texture for an id, or nullptr to fall back to procedural.
+// Animation advances one frame every (1<<speed)/ANIM_HZ seconds. ANIM_HZ is the
+// base rate at speed 0; the picanm speed (2..7 in Duke's art) slows it down.
+static constexpr float ANIM_HZ = 20.0f;
+
+int Renderer::animFrame(int texId) const {
+    if(!anims_ || !animOf_ || texId < 0 || texId >= (int)animOf_->size()) return texId;
+    int ai = (*animOf_)[texId];
+    if(ai < 0) return texId;
+    const TexAnim& a = (*anims_)[ai];
+    int nf = (int)a.frames.size();
+    if(nf <= 1) return texId;
+    int step = (int)(animTime_ * (ANIM_HZ / (float)(1 << a.speed)));
+    int idx;
+    if(a.type == 1) { // oscillating: 0..nf-1..1..
+        int period = 2 * (nf - 1);
+        int p = step % period;
+        idx = p < nf ? p : period - p;
+    } else if(a.type == 3) { // backward
+        idx = (nf - 1) - (step % nf);
+    } else { // forward (2)
+        idx = step % nf;
+    }
+    return a.frames[idx];
+}
+
 const Texture* Renderer::imageFor(int texId) const {
+    texId = animFrame(texId); // animated base -> the frame to show this instant
     if(texId >= 0 && textures_ && texId < (int)textures_->size() &&
        !(*textures_)[texId].pixels.empty())
         return &(*textures_)[texId];
@@ -124,6 +150,7 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
         float fy = (y - yTopf) / span;
         float v = (vTop + (vBot - vTop) * fy) / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(su, v) : sampleBrick(base, su, v);
+        if(img && isClear(c)) continue; // colour-key: read through to whatever's behind
         frameBuffer_[idx] = shade(c, fade);
         depthBuffer_[idx] = depth;
 #if EDITOR
@@ -150,6 +177,7 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float wy = P.y + P.yawSin * tz - P.yawCos * txc;
         float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(sx, sy) : sampleTile(base, sx, sy);
+        if(img && isClear(c)) continue; // colour-key: read through to whatever's behind
         frameBuffer_[idx] = shade(c, distFade(tz) * light);
         depthBuffer_[idx] = tz;
 #if EDITOR
@@ -177,6 +205,7 @@ void Renderer::skySpan(int x, int y0, int y1, uint32_t base, int texId,
 #if EDITOR
         pickBuffer_[idx] = surf; // still picks as the ceiling
 #endif
+        if(img && isClear(c)) continue; // colour-key: read through to whatever's behind
     }
 }
 
@@ -429,11 +458,16 @@ void Renderer::drawSprites(const Map& map, const Camera& P) {
                 if(tz >= depthBuffer_[y * W + x]) continue;
                 float vv = (y - yt) / (float)(yb - yt);
                 uint32_t c;
+                bool clear;
                 if(img) {
-                    uint32_t t = img->at(uu, vv);
-                    c = (t >> 24) < 128 ? 0 : (t & 0xFFFFFF);
-                } else c = sampleSprite(sp.color, uu, vv);
-                if(c) {
+                    uint32_t t = img->atClamp(uu, vv); // clamp, not wrap (no edge repeat)
+                    clear = isClear(t);                // magenta key or alpha cutout
+                    c = t & 0xFFFFFF;                  // keep opaque black texels (don't drop)
+                } else {
+                    c = sampleSprite(sp.color, uu, vv);
+                    clear = (c == 0); // procedural billboard: 0 == transparent
+                }
+                if(!clear) {
                     frameBuffer_[y * W + x] = shade(c, fade);
 #if EDITOR
                     pickBuffer_[y * W + x] =

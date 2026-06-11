@@ -19,12 +19,21 @@ struct SurfaceRef {
 
 class Renderer {
   public:
-    static constexpr int W = 960, H = 600;
+    const int W, H; // framebuffer size, chosen at construction (e.g. --res WxH)
 
-    Renderer();
+    Renderer(int w, int h);
 
     // Loaded image textures, indexed by surface texture id (-1 = procedural).
     void setTextures(const std::vector<Texture>* t) { textures_ = t; }
+
+    // Animated textures: `anims` are the cycles, `animOf` maps each texture id to
+    // an index in `anims` (-1 = not animated). imageFor() then resolves an
+    // animated id to its current frame. advanceAnim(dt) drives the clock.
+    void setAnimations(const std::vector<TexAnim>* anims, const std::vector<int>* animOf) {
+        anims_ = anims;
+        animOf_ = animOf;
+    }
+    void advanceAnim(float dt) { animTime_ += dt; }
 
     void clear(uint32_t bg);
     void renderWorld(const Map& map, const Camera& cam, int playerSector);
@@ -67,14 +76,18 @@ class Renderer {
   private:
     float focalLength_; // focal length in pixels
     const std::vector<Texture>* textures_ = nullptr;
-    std::vector<uint32_t> frameBuffer_; // W*H colour buffer
-    std::vector<float> depthBuffer_;    // W*H depth buffer
+    const std::vector<TexAnim>* anims_ = nullptr;
+    const std::vector<int>* animOf_ = nullptr; // texId -> index in anims_, or -1
+    float animTime_ = 0.0f;                    // seconds, advanced by advanceAnim
+    std::vector<uint32_t> frameBuffer_;        // W*H colour buffer
+    std::vector<float> depthBuffer_;           // W*H depth buffer
 #if EDITOR
     std::vector<uint32_t> pickBuffer_; // W*H packed surface IDs (editor only)
 #endif
     std::vector<int> columnTop_, columnBottom_; // per-column open vertical window
 
     const Texture* imageFor(int texId) const;
+    int animFrame(int texId) const; // resolve an animated texId to its current frame
     void putPixel(int x, int y, uint32_t c);
     void drawLine(int x0, int y0, int x1, int y1, uint32_t c);
     void wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot, int clipT, int clipB,

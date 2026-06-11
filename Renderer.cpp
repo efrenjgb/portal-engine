@@ -391,10 +391,19 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
                 } else {
                     float naf = n1a + (n2a - n1a) * t;
                     float nbf = n1b + (n2b - n1b) * t;
-                    wallSpan(x, yaf, naf, sec.ceiling, map.sectors[nb].ceiling, wt, wb, u,
-                             sec.wallColor, dep, wsurf, wtx, wid, wlight);
-                    wallSpan(x, nbf, ybf, map.sectors[nb].floor, sec.floor, wt, wb, u,
-                             sec.wallColor, dep, wsurf, wtx, wid, wlight);
+                    const Sector& ns = map.sectors[nb];
+                    // Door/lift step: pan the texture so it slides WITH the moving
+                    // surface instead of being uncovered — a descending door reads
+                    // as a panel sliding down, not a static wall growing taller. We
+                    // pin a texel to the moving edge (the ceiling for a door's upper
+                    // step, the floor for a lift's lower step) by offsetting v.
+                    TextureTransform utx = wtx, ltx = wtx;
+                    if(ns.mover == 1) utx.vOffset += (ns.moverRest - ns.ceiling) / wtx.vScale;
+                    if(ns.mover == 2) ltx.vOffset += (ns.moverRest - ns.floor) / wtx.vScale;
+                    wallSpan(x, yaf, naf, sec.ceiling, ns.ceiling, wt, wb, u, sec.wallColor, dep,
+                             wsurf, utx, wid, wlight);
+                    wallSpan(x, nbf, ybf, ns.floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf,
+                             ltx, wid, wlight);
                     // shrink the LIVE window (monotonically) for queued children
                     columnTop_[x] =
                         std::max(columnTop_[x], clampi(std::max((int)yaf, (int)naf), wt, H - 1));

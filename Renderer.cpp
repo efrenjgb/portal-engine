@@ -421,10 +421,23 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
                     TextureTransform utx = wtx, ltx = wtx;
                     if(ns.mover == 1) utx.vOffset += (ns.ceiling - ns.moverRest) / wtx.vScale;
                     if(ns.mover == 2) ltx.vOffset += (ns.floor - ns.moverRest) / wtx.vScale;
-                    wallSpan(x, yaf, naf, sec.ceiling, ns.ceiling, wt, wb, u, sec.wallColor, dep,
-                             wsurf, utx, wid, wlight);
-                    wallSpan(x, nbf, ybf, ns.floor, sec.floor, wt, wb, u, sec.wallColor, dep, wsurf,
-                             ltx, wid, wlight);
+                    // Hole walls (inner loops) face into a cutout: when the inner floor
+                    // dips below ours (a pit) or its ceiling rises above ours, the
+                    // inner sector back-face-culls that drop face, so WE must draw it
+                    // (the step otherwise degenerates to an empty span -> a black gap).
+                    bool holeWall = sec.loopStart.size() > 1 && sec.loopOf(s) >= 1;
+                    if(holeWall && ns.ceiling > sec.ceiling)
+                        wallSpan(x, naf, yaf, ns.ceiling, sec.ceiling, wt, wb, u, sec.wallColor,
+                                 dep, wsurf, utx, wid, wlight);
+                    else
+                        wallSpan(x, yaf, naf, sec.ceiling, ns.ceiling, wt, wb, u, sec.wallColor,
+                                 dep, wsurf, utx, wid, wlight);
+                    if(holeWall && ns.floor < sec.floor)
+                        wallSpan(x, ybf, nbf, sec.floor, ns.floor, wt, wb, u, sec.wallColor, dep,
+                                 wsurf, ltx, wid, wlight);
+                    else
+                        wallSpan(x, nbf, ybf, ns.floor, sec.floor, wt, wb, u, sec.wallColor, dep,
+                                 wsurf, ltx, wid, wlight);
                     // shrink the LIVE window (monotonically) for queued children
                     columnTop_[x] =
                         std::max(columnTop_[x], clampi(std::max((int)yaf, (int)naf), wt, H - 1));

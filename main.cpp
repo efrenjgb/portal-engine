@@ -171,6 +171,28 @@ static void rebuildPortals(Map& m) {
         }
     }
 }
+// A cutout rim is two coincident portal walls: the parent's hole-loop wall and the
+// inner sector's outer wall (the points are reversed between them, so the U axis is
+// mirrored and each carries its own texture). After editing one side's texture, copy
+// it to the paired wall so the rim reads the same from both sides. Only fires for a
+// cutout rim (one side lives in an inner hole loop); ordinary portals stay
+// independently texturable.
+static void syncRimTexture(Map& m, int sec, int wall) {
+    if(sec < 0 || sec >= (int)m.sectors.size()) return;
+    Sector& S = m.sectors[sec];
+    if(wall < 0 || wall >= (int)S.vertices.size()) return;
+    int nb = S.neighbors[wall];
+    if(nb < 0 || nb >= (int)m.sectors.size()) return;
+    Sector& N = m.sectors[nb];
+    Vec2 a = S.vertices[wall], b = S.vertices[S.wallEnd(wall)];
+    for(int i = 0; i < (int)N.vertices.size(); ++i)
+        if(verticesEqual(N.vertices[i], b) && verticesEqual(N.vertices[N.wallEnd(i)], a)) {
+            if(S.loopOf(wall) < 1 && N.loopOf(i) < 1) return; // ordinary portal, leave alone
+            N.wallTextureIds[i] = S.wallTextureIds[wall];
+            N.wallTextures[i] = S.wallTextures[wall];
+            return;
+        }
+}
 // point-in-polygon (even-odd rule) for inheriting a new sector's look. Loop-aware:
 // each wall's edge is taken within its own loop, so a point inside an inner hole
 // (CW loop) flips parity twice and reads as OUTSIDE the parent — i.e. it belongs
@@ -694,9 +716,10 @@ int main(int argc, char** argv) {
                                   pickTarget.sector < (int)map.sectors.size()) {
                             Sector& s = map.sectors[pickTarget.sector];
                             if(pickTarget.kind == SurfaceRef::Wall &&
-                               pickTarget.wall < (int)s.wallTextureIds.size())
+                               pickTarget.wall < (int)s.wallTextureIds.size()) {
                                 s.wallTextureIds[pickTarget.wall] = tid;
-                            else if(pickTarget.kind == SurfaceRef::Floor) s.floorTextureId = tid;
+                                syncRimTexture(map, pickTarget.sector, pickTarget.wall);
+                            } else if(pickTarget.kind == SurfaceRef::Floor) s.floorTextureId = tid;
                             else if(pickTarget.kind == SurfaceRef::Ceiling)
                                 s.ceilingTextureId = tid;
                         }
@@ -951,6 +974,7 @@ int main(int argc, char** argv) {
                         }
                         if(idp) {
                             *idp = (*idp + 1 >= n) ? -1 : *idp + 1;
+                            if(a.kind == SurfaceRef::Wall) syncRimTexture(map, a.sector, a.wall);
                             printf("texture id = %d %s\n", *idp, *idp < 0 ? "(procedural)" : "");
                             showMessage(*idp < 0 ? "texture: procedural"
                                                  : "texture id " + std::to_string(*idp));
@@ -1211,6 +1235,7 @@ int main(int argc, char** argv) {
                         if(ks[SDL_SCANCODE_SEMICOLON]) tx->uOffset -= pan;
                         if(ks[SDL_SCANCODE_PERIOD]) tx->vOffset += pan;
                         if(ks[SDL_SCANCODE_COMMA]) tx->vOffset -= pan;
+                        if(aim.kind == SurfaceRef::Wall) syncRimTexture(map, aim.sector, aim.wall);
                     }
                 }
                 // [ / ] resize the aimed sprite (uniform, so the texture aspect holds)

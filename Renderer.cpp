@@ -205,39 +205,11 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float txc = (x - W * 0.5f) * tz / focalLength_;
         float wx = P.x + P.yawCos * tz + P.yawSin * txc;
         float wy = P.y + P.yawSin * tz - P.yawCos * txc;
-        // A pit/recess cutout under this pixel: draw the cutout's own surface (at its
-        // height) here instead of ours, so the depth shows and there's no gap.
-        if(hasHoles) {
-            int inner = farHoleInner(*worldMap, *holes, pz, isFloor, wx, wy);
-            if(inner >= 0) {
-                const Sector& C = worldMap->sectors[inner];
-                float czc = (isFloor ? C.floor : C.ceiling) - P.z;
-                float ctz = czc * focalLength_ / denom;
-                if(ctz <= 0.0001f || ctz >= depthBuffer_[idx]) continue;
-                float ctxc = (x - W * 0.5f) * ctz / focalLength_;
-                float cwx = P.x + P.yawCos * ctz + P.yawSin * ctxc;
-                float cwy = P.y + P.yawSin * ctz - P.yawCos * ctxc;
-                const TextureTransform& ctx = isFloor ? C.floorTexture : C.ceilingTexture;
-                int cid = isFloor ? C.floorTextureId : C.ceilingTextureId;
-                uint32_t cbase = isFloor ? C.floorColor : C.ceilingColor;
-                float clight = isFloor ? C.floorLight : C.ceilingLight;
-                const Texture* cimg = imageFor(cid);
-                float csx = cwx / ctx.uScale + ctx.uOffset, csy = cwy / ctx.vScale + ctx.vOffset;
-                uint32_t cc = cimg ? cimg->at(csx, csy) : sampleTile(cbase, csx, csy);
-                if(cimg && isClear(cc)) continue;
-                frameBuffer_[idx] = shade(cc, distFade(ctz) * clight);
-                // Store slightly further than true depth: the cutout's drop-face
-                // riser sits at almost the same depth along the rim and is drawn after
-                // this floor cast, so this lets the riser win there (no floor over
-                // wall) while the floor still fills every pixel a riser misses.
-                depthBuffer_[idx] = ctz * 1.004f;
-#if EDITOR
-                pickBuffer_[idx] =
-                    packSurface(inner, isFloor ? SurfaceRef::Floor : SurfaceRef::Ceiling, 0);
-#endif
-                continue;
-            }
-        }
+        // Skip pixels over a pit (inner floor below ours / inner ceiling above ours):
+        // the cutout's own surface, on the FAR side, is painted by drawCutouts() after
+        // the walls so it loses to the rim risers. A nearer platform/recess is left to
+        // the z-buffer (drawCutouts draws it too, winning normally).
+        if(hasHoles && farHoleInner(*worldMap, *holes, pz, isFloor, wx, wy) >= 0) continue;
         float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(sx, sy) : sampleTile(base, sx, sy);
         if(img && isClear(c)) continue; // colour-key: read through to whatever's behind
@@ -246,6 +218,79 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
 #if EDITOR
         pickBuffer_[idx] = surf;
 #endif
+    }
+}
+
+void Renderer::drawCutouts(const Camera& P, const Map& map, const Sector& sec, int sx1, int sx2,
+                           const std::vector<int>& et, const std::vector<int>& eb) {
+    if(sec.loopStart.size() < 2) return;
+    for(size_t k = 1; k < sec.loopStart.size(); ++k) {
+        int nb = sec.neighbors[sec.loopBegin((int)k)]; // the cutout sector
+        if(nb < 0 || nb >= (int)map.sectors.size()) continue;
+        const Sector& C = map.sectors[nb];
+        int lb = sec.loopBegin((int)k), le = sec.loopEnd((int)k);
+        for(int pass = 0; pass < 2; ++pass) { // 0 = floor, 1 = ceiling
+            bool isFloor = (pass == 0);
+            float pz = isFloor ? C.floor : C.ceiling;
+            if(std::fabs(pz - (isFloor ? sec.floor : sec.ceiling)) < 1e-4f) continue; // flush
+            const TextureTransform& ctx = isFloor ? C.floorTexture : C.ceilingTexture;
+            int cid = isFloor ? C.floorTextureId : C.ceilingTextureId;
+            uint32_t cbase = isFloor ? C.floorColor : C.ceilingColor;
+            float clight = isFloor ? C.floorLight : C.ceilingLight;
+            [[maybe_unused]] uint32_t cpick =
+                packSurface(nb, isFloor ? SurfaceRef::Floor : SurfaceRef::Ceiling, 0);
+            const Texture* cimg = imageFor(cid);
+            float h = pz - P.z;
+            // bound the work to the hole's projected column span (or the whole window
+            // if any vertex is near/behind the camera)
+            int hx0 = sx2 + 1, hx1 = sx1 - 1;
+            bool full = false;
+            for(int i = lb; i < le; ++i) {
+                float vx = sec.vertices[i].x - P.x, vy = sec.vertices[i].y - P.y;
+                float tz = vx * P.yawCos + vy * P.yawSin;
+                if(tz < NEAR_PLANE) {
+                    full = true;
+                    break;
+                }
+                int sxp = (int)(W * 0.5f + (vx * P.yawSin - vy * P.yawCos) * focalLength_ / tz);
+                hx0 = std::min(hx0, sxp);
+                hx1 = std::max(hx1, sxp);
+            }
+            if(full) {
+                hx0 = sx1;
+                hx1 = sx2;
+            }
+            hx0 = std::max(hx0, sx1);
+            hx1 = std::min(hx1, sx2);
+            for(int x = hx0; x <= hx1; ++x) {
+                for(int y = et[x]; y <= eb[x]; ++y) {
+                    float denom = (H * 0.5f - y) - P.pitch * focalLength_;
+                    float tz = h * focalLength_ / denom;
+                    if(tz <= 0.0001f) continue;
+                    int idx = y * W + x;
+                    if(tz >= depthBuffer_[idx]) continue; // loses to walls/nearer surfaces
+                    float txc = (x - W * 0.5f) * tz / focalLength_;
+                    float wx = P.x + P.yawCos * tz + P.yawSin * txc;
+                    float wy = P.y + P.yawSin * tz - P.yawCos * txc;
+                    bool in = false; // inside this hole loop?
+                    for(int i = lb, j = le - 1; i < le; j = i++) {
+                        Vec2 A = sec.vertices[i], B = sec.vertices[j];
+                        if(((A.y > wy) != (B.y > wy)) &&
+                           (wx < (B.x - A.x) * (wy - A.y) / (B.y - A.y) + A.x))
+                            in = !in;
+                    }
+                    if(!in) continue;
+                    float sx = wx / ctx.uScale + ctx.uOffset, sy = wy / ctx.vScale + ctx.vOffset;
+                    uint32_t c = cimg ? cimg->at(sx, sy) : sampleTile(cbase, sx, sy);
+                    if(cimg && isClear(c)) continue;
+                    frameBuffer_[idx] = shade(c, distFade(tz) * clight);
+                    depthBuffer_[idx] = tz;
+#if EDITOR
+                    pickBuffer_[idx] = cpick;
+#endif
+                }
+            }
+        }
     }
 }
 
@@ -331,8 +376,12 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
 
             if(tz1 <= 0 && tz2 <= 0) continue; // fully behind us
 
-            float cross = tx1 * tz2 - tx2 * tz1; // back-face cull
-            if(cross <= 0) continue;
+            // Back-face cull. Inner hole loops are wound CW (opposite the CCW outer
+            // boundary), so their facing test is inverted — otherwise a cutout's
+            // camera-facing drop faces would be culled and the away faces drawn.
+            bool holeWall = sec.loopStart.size() > 1 && sec.loopOf(s) >= 1;
+            float cross = tx1 * tz2 - tx2 * tz1;
+            if(holeWall ? (cross >= 0) : (cross <= 0)) continue;
 
             // Clip the wall to the view frustum in camera space: the near plane
             // and the two side (screen-edge) planes. Afterwards both endpoints
@@ -464,11 +513,9 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
                     TextureTransform utx = wtx, ltx = wtx;
                     if(ns.mover == 1) utx.vOffset += (ns.ceiling - ns.moverRest) / wtx.vScale;
                     if(ns.mover == 2) ltx.vOffset += (ns.floor - ns.moverRest) / wtx.vScale;
-                    // Hole walls (inner loops) face into a cutout: when the inner floor
-                    // dips below ours (a pit) or its ceiling rises above ours, the
-                    // inner sector back-face-culls that drop face, so WE must draw it
-                    // (the step otherwise degenerates to an empty span -> a black gap).
-                    bool holeWall = sec.loopStart.size() > 1 && sec.loopOf(s) >= 1;
+                    // For a cutout (holeWall) whose inner floor dips below ours (a pit)
+                    // or ceiling rises above ours, draw the drop face from our side —
+                    // the step would otherwise degenerate to an empty span.
                     if(holeWall && ns.ceiling > sec.ceiling)
                         wallSpan(x, naf, yaf, ns.ceiling, sec.ceiling, wt, wb, u, sec.wallColor,
                                  dep, wsurf, utx, wid, wlight);
@@ -495,6 +542,9 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
                 count++;
             }
         }
+        // paint each cutout's inner floor/ceiling now that this sector's walls (and
+        // the rim risers) are in the depth buffer, so the cutout loses to them.
+        drawCutouts(P, map, sec, now.sx1, now.sx2, et, eb);
     }
 }
 

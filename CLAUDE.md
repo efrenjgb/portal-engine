@@ -176,15 +176,22 @@ existing sector makes a **cutout** (`addCutout`): the parent gains a hole loop
 created; `rebuildPortals` bonds them into portals both ways. Then raise the inner
 floor to its ceiling for a **column**, lower the inner ceiling for a **recess**, or
 lower the inner floor for a **pit**. Map format: a `loop` line begins an inner loop.
-A platform/recess is *nearer* than the parent surface so the z-buffer already keeps
-it; only a **pit** (or an inner ceiling above ours) is on the far side. For those,
-`planeSpan` detects the pit hole under each floor/ceiling pixel (`farHoleInner`) and
-draws the **cutout's own surface** there (at its height, with its texture) instead
-of the parent's — so coverage is guaranteed and the depth shows. This sidesteps the
-portal flood: a single-range column window can't reliably reach every inner sector
-when one parent has many overlapping holes, but the inline draw doesn't need it to.
-The parent also draws the far drop-faces (the hole-wall risers), since the inner
-sector back-face-culls them from outside.
+Rendering a cutout takes three cooperating parts, all independent of whether the
+portal flood reaches the inner sector (a single-range column window can't reliably
+reach many overlapping holes):
+1. **Inverted cull for hole walls.** Inner loops are wound CW, so the back-face test
+   is flipped for them (`holeWall ? cross>=0 : cross<=0`) — otherwise a cutout's
+   camera-facing drop faces are culled and the away faces drawn. This is what makes
+   the rim risers appear. The parent also draws the drop-face step (`wallSpan`) even
+   when the inner floor dips below / ceiling rises above ours (the step would
+   otherwise be an empty span).
+2. **planeSpan skip.** The parent floor/ceiling skips pixels over a *far-side* cutout
+   (a pit, or an inner ceiling above ours — `farHoleInner`) so it doesn't paint over
+   it. A nearer platform/recess is left to the z-buffer.
+3. **`drawCutouts`.** After a sector's walls are in the depth buffer, paint each
+   cutout's inner floor/ceiling clipped to its hole loop and z-tested — so it fills
+   the cutout's full screen extent (even a deep pit's centre) yet loses to the rim
+   risers (no floor-over-wall).
 
 **Doors & lifts.** A sector can be a `mover` (Sector in `Map.h`): a **door** (1)
 animates its **ceiling** between the floor (closed) and `moverRest` (the authored

@@ -98,5 +98,10 @@ class Renderer {
                    const TextureTransform& tx, int texId, float light = 1.0f,
                    const Map* worldMap = nullptr, const Sector* holes = nullptr,
                    bool isFloor = true);
+    // After a sector's walls are drawn, paint each cutout's inner floor/ceiling
+    // clipped to its hole loop and z-tested — so a pit's floor fills its full extent
+    // yet loses to the rim risers, independent of the portal flood reaching it.
+    void drawCutouts(const Camera& cam, const Map& map, const Sector& sec, int sx1, int sx2,
+                     const std::vector<int>& et, const std::vector<int>& eb);
     void skySpan(int x, int y0, int y1, uint32_t base, int texId, uint32_t surf);
 };

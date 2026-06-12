@@ -226,7 +226,11 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
                 uint32_t cc = cimg ? cimg->at(csx, csy) : sampleTile(cbase, csx, csy);
                 if(cimg && isClear(cc)) continue;
                 frameBuffer_[idx] = shade(cc, distFade(ctz) * clight);
-                depthBuffer_[idx] = ctz;
+                // Store slightly further than true depth: the cutout's drop-face
+                // riser sits at almost the same depth along the rim and is drawn after
+                // this floor cast, so this lets the riser win there (no floor over
+                // wall) while the floor still fills every pixel a riser misses.
+                depthBuffer_[idx] = ctz * 1.004f;
 #if EDITOR
                 pickBuffer_[idx] =
                     packSurface(inner, isFloor ? SurfaceRef::Floor : SurfaceRef::Ceiling, 0);

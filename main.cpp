@@ -193,6 +193,62 @@ static void syncRimTexture(Map& m, int sec, int wall) {
             return;
         }
 }
+// Remove inner hole loop k (k >= 1) from sector P: drop that loop's wall entries
+// and its loopStart marker, shifting any later loop down. Used when a cutout's
+// inner sector is deleted, so the parent returns to a clean polygon.
+static void eraseHoleLoop(Sector& P, int k) {
+    int b = P.loopBegin(k), e = P.loopEnd(k), cnt = e - b;
+    P.vertices.erase(P.vertices.begin() + b, P.vertices.begin() + e);
+    P.neighbors.erase(P.neighbors.begin() + b, P.neighbors.begin() + e);
+    P.wallTextures.erase(P.wallTextures.begin() + b, P.wallTextures.begin() + e);
+    P.wallTextureIds.erase(P.wallTextureIds.begin() + b, P.wallTextureIds.begin() + e);
+    P.wallLight.erase(P.wallLight.begin() + b, P.wallLight.begin() + e);
+    P.loopStart.erase(P.loopStart.begin() + k);
+    for(int& ls : P.loopStart)
+        if(ls > b) ls -= cnt;
+}
+// Delete a whole sector. Cascades to any cutout sectors it hosts (the neighbours of
+// its inner hole loops); and if the deleted sector is itself a cutout, the hosting
+// parent's hole loop is removed so the parent goes back to a plain polygon. Wall
+// neighbours are rederived by rebuildPortals afterwards; startSector is remapped.
+static bool deleteSector(Map& m, int target) {
+    int ns = (int)m.sectors.size();
+    if(target < 0 || target >= ns) return false;
+    // collect the target plus every inner cutout sector it hosts (transitively)
+    std::vector<int> remove;
+    std::vector<int> stack = {target};
+    auto marked = [&](int s) { return std::find(remove.begin(), remove.end(), s) != remove.end(); };
+    while(!stack.empty()) {
+        int s = stack.back();
+        stack.pop_back();
+        if(marked(s)) continue;
+        remove.push_back(s);
+        Sector& S = m.sectors[s];
+        for(int k = 1; k < (int)S.loopStart.size(); ++k) {
+            int nb = S.neighbors[S.loopBegin(k)];
+            if(nb >= 0 && nb < ns) stack.push_back(nb);
+        }
+    }
+    // for each removed sector that has a SURVIVING parent, drop the parent's matching
+    // hole loop (indices are still valid — we haven't erased any sector yet)
+    for(int s : remove)
+        for(int p = 0; p < ns; ++p) {
+            if(marked(p)) continue;
+            Sector& P = m.sectors[p];
+            for(int k = 1; k < (int)P.loopStart.size();)
+                if(P.neighbors[P.loopBegin(k)] == s) eraseHoleLoop(P, k);
+                else ++k;
+        }
+    // erase the sectors high-index first, remapping the player's start sector
+    std::sort(remove.begin(), remove.end(), [](int a, int b) { return a > b; });
+    for(int s : remove) {
+        m.sectors.erase(m.sectors.begin() + s);
+        if(m.startSector == s) m.startSector = 0;
+        else if(m.startSector > s) --m.startSector;
+    }
+    rebuildPortals(m);
+    return true;
+}
 // point-in-polygon (even-odd rule) for inheriting a new sector's look. Loop-aware:
 // each wall's edge is taken within its own loop, so a point inside an inner hole
 // (CW loop) flips parity twice and reads as OUTSIDE the parent — i.e. it belongs
@@ -522,8 +578,9 @@ int main(int argc, char** argv) {
            "   O             :   toggle sky backdrop on aimed ceiling\n"
            "   C             :   tag aimed sector none/door/lift (door=ceiling, lift=floor)\n"
            "   J             :   match aimed floor/ceiling to the adjacent sector's height\n"
+           "   Shift+Del      :   delete the aimed sector (cascades to its cutouts)\n"
            "   Enter         : 2D map view  (G grid snap, [ / ] grid finer/coarser, hold Alt to "
-           "bypass | Z undo | Del/X delete vertex/sprite)\n"
+           "bypass | Z undo | Del/X delete vertex/sprite, Shift+Del delete sector)\n"
            "                     drag a vertex to move it; drag a sprite (diamond) to reposition "
            "it; N adds a sprite;\n"
            "                     click a wall to split in a vertex; coincide two walls to bond a "
@@ -918,7 +975,24 @@ int main(int argc, char** argv) {
                             if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x) {
                                 VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
                                 int sp;
-                                if(v.index >= 0) { // delete a vertex...
+                                if(SDL_GetModState() & KMOD_SHIFT) { // delete the whole sector
+                                    Vec2 wp{s2wx(mouseX), s2wy(mouseY)};
+                                    int target = -1;
+                                    for(int i = 0; i < (int)map.sectors.size(); ++i)
+                                        if(pointInSector(map.sectors[i], wp)) {
+                                            target = i;
+                                            break;
+                                        }
+                                    if(target >= 0) {
+                                        pushUndo();
+                                        deleteSector(map, target);
+                                        dragVerts.clear();
+                                        if(player.sector >= (int)map.sectors.size())
+                                            player.sector = 0; // keep it in range for 3D
+                                        printf("deleted sector %d\n", target);
+                                        showMessage("deleted sector " + std::to_string(target));
+                                    } else showMessage("aim inside a sector to delete it");
+                                } else if(v.index >= 0) { // delete a vertex...
                                     pushUndo();
                                     if(!deleteVertex(map,
                                                      map.sectors[v.sector].vertices[v.index])) {
@@ -1045,6 +1119,25 @@ int main(int argc, char** argv) {
                                 showMessage(b);
                             } else showMessage("no adjacent sector to match");
                         }
+                    }
+                    if((k == SDLK_DELETE || k == SDLK_BACKSPACE) && !mapView &&
+                       (SDL_GetModState() & KMOD_SHIFT)) { // delete the aimed sector (+ cutouts)
+                        SurfaceRef a = renderer.pickAt(W / 2, H / 2);
+                        if(a.sector >= 0 && a.sector < (int)map.sectors.size()) {
+                            int t = a.sector;
+                            pushUndo();
+                            deleteSector(map, t);
+                            // indices shifted (and our sector may be gone): re-localize
+                            Vec2 pp{player.camera.x, player.camera.y};
+                            player.sector = 0;
+                            for(int i = 0; i < (int)map.sectors.size(); ++i)
+                                if(pointInSector(map.sectors[i], pp)) {
+                                    player.sector = i;
+                                    break;
+                                }
+                            printf("deleted sector %d\n", t);
+                            showMessage("deleted sector " + std::to_string(t));
+                        } else showMessage("aim at a sector to delete it");
                     }
                     if(k == SDLK_k) {
                         bool ok = saveMap(map, savePath);

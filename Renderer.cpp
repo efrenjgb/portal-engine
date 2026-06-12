@@ -377,11 +377,24 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
             if(tz1 <= 0 && tz2 <= 0) continue; // fully behind us
 
             // Back-face cull. Inner hole loops are wound CW (opposite the CCW outer
-            // boundary), so their facing test is inverted — otherwise a cutout's
-            // camera-facing drop faces would be culled and the away faces drawn.
+            // boundary). Whether that flips the facing test depends on the cutout
+            // shape: a CONCAVE cutout (a pit whose floor drops below ours, or a well
+            // whose ceiling rises above ours) is one we look *into*, and its
+            // camera-facing drop faces have the inverted winding — so invert the test.
+            // A CONVEX cutout (a raised platform/column, or a recessed soffit) is one
+            // we look *at* from outside; we see its near faces, so it keeps the normal
+            // CCW cull — inverting there would draw the far faces and mirror the walls.
             bool holeWall = sec.loopStart.size() > 1 && sec.loopOf(s) >= 1;
+            bool concave = false;
+            if(holeWall) {
+                int hn = sec.neighbors[s];
+                if(hn >= 0 && hn < (int)map.sectors.size()) {
+                    const Sector& hs = map.sectors[hn];
+                    concave = hs.floor < sec.floor || hs.ceiling > sec.ceiling;
+                }
+            }
             float cross = tx1 * tz2 - tx2 * tz1;
-            if(holeWall ? (cross >= 0) : (cross <= 0)) continue;
+            if(concave ? (cross >= 0) : (cross <= 0)) continue;
 
             // Clip the wall to the view frustum in camera space: the near plane
             // and the two side (screen-edge) planes. Afterwards both endpoints

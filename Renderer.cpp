@@ -62,21 +62,31 @@ static float sectorLightAt(const Map& m, Vec2 p) {
     return 1.0f;
 }
 
-// Is (x,y) inside one of the sector's inner hole loops? Floor/ceiling casting
-// skips those pixels so the parent surface doesn't draw over a cutout (the inner
-// sector, reached through the hole's portal walls, fills them instead).
-static bool pointInHoles(const Sector& s, float x, float y) {
+// If (x,y) is inside an inner hole whose cutout dips to the FAR side of this plane
+// — a pit (inner floor below ours) for the floor, or an inner ceiling above ours
+// for the ceiling — return that inner sector index, else -1. Those are the only
+// cutouts the parent surface would wrongly draw over (the z-buffer already keeps a
+// nearer platform/recess). The floor/ceiling cast draws the cutout's own surface at
+// these pixels instead, so coverage is guaranteed (no reliance on the portal flood
+// reaching the inner sector — which a single-range window can't promise for many
+// overlapping holes).
+static int farHoleInner(const Map& map, const Sector& s, float pz, bool isFloor, float x, float y) {
     for(size_t k = 1; k < s.loopStart.size(); ++k) {
-        bool in = false;
-        int b = s.loopStart[k], e = s.loopEnd((int)k);
+        int nb = s.neighbors[s.loopBegin((int)k)]; // inner sector across this hole
+        if(nb < 0 || nb >= (int)map.sectors.size()) continue;
+        const Sector& in = map.sectors[nb];
+        bool far = isFloor ? (in.floor < pz - 1e-4f) : (in.ceiling > pz + 1e-4f);
+        if(!far) continue;
+        bool inside = false;
+        int b = s.loopBegin((int)k), e = s.loopEnd((int)k);
         for(int i = b, j = e - 1; i < e; j = i++) {
             Vec2 A = s.vertices[i], B = s.vertices[j];
             if(((A.y > y) != (B.y > y)) && (x < (B.x - A.x) * (y - A.y) / (B.y - A.y) + A.x))
-                in = !in;
+                inside = !inside;
         }
-        if(in) return true;
+        if(inside) return nb;
     }
-    return false;
+    return -1;
 }
 
 // ---- Renderer --------------------------------------------------------------
@@ -180,12 +190,12 @@ void Renderer::wallSpan(int x, float yTopf, float yBotf, float vTop, float vBot,
 
 void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint32_t base,
                          [[maybe_unused]] uint32_t surf, const TextureTransform& tx, int texId,
-                         float light, const Sector* holes) {
+                         float light, const Map* worldMap, const Sector* holes, bool isFloor) {
     if(y0 < 0) y0 = 0;
     if(y1 > H - 1) y1 = H - 1;
     float h = pz - P.z;
     const Texture* img = imageFor(texId);
-    bool hasHoles = holes && holes->loopStart.size() > 1;
+    bool hasHoles = worldMap && holes && holes->loopStart.size() > 1;
     for(int y = y0; y <= y1; ++y) {
         float denom = (H * 0.5f - y) - P.pitch * focalLength_;
         float tz = h * focalLength_ / denom;
@@ -195,7 +205,35 @@ void Renderer::planeSpan(const Camera& P, int x, int y0, int y1, float pz, uint3
         float txc = (x - W * 0.5f) * tz / focalLength_;
         float wx = P.x + P.yawCos * tz + P.yawSin * txc;
         float wy = P.y + P.yawSin * tz - P.yawCos * txc;
-        if(hasHoles && pointInHoles(*holes, wx, wy)) continue; // a cutout fills this pixel
+        // A pit/recess cutout under this pixel: draw the cutout's own surface (at its
+        // height) here instead of ours, so the depth shows and there's no gap.
+        if(hasHoles) {
+            int inner = farHoleInner(*worldMap, *holes, pz, isFloor, wx, wy);
+            if(inner >= 0) {
+                const Sector& C = worldMap->sectors[inner];
+                float czc = (isFloor ? C.floor : C.ceiling) - P.z;
+                float ctz = czc * focalLength_ / denom;
+                if(ctz <= 0.0001f || ctz >= depthBuffer_[idx]) continue;
+                float ctxc = (x - W * 0.5f) * ctz / focalLength_;
+                float cwx = P.x + P.yawCos * ctz + P.yawSin * ctxc;
+                float cwy = P.y + P.yawSin * ctz - P.yawCos * ctxc;
+                const TextureTransform& ctx = isFloor ? C.floorTexture : C.ceilingTexture;
+                int cid = isFloor ? C.floorTextureId : C.ceilingTextureId;
+                uint32_t cbase = isFloor ? C.floorColor : C.ceilingColor;
+                float clight = isFloor ? C.floorLight : C.ceilingLight;
+                const Texture* cimg = imageFor(cid);
+                float csx = cwx / ctx.uScale + ctx.uOffset, csy = cwy / ctx.vScale + ctx.vOffset;
+                uint32_t cc = cimg ? cimg->at(csx, csy) : sampleTile(cbase, csx, csy);
+                if(cimg && isClear(cc)) continue;
+                frameBuffer_[idx] = shade(cc, distFade(ctz) * clight);
+                depthBuffer_[idx] = ctz;
+#if EDITOR
+                pickBuffer_[idx] =
+                    packSurface(inner, isFloor ? SurfaceRef::Floor : SurfaceRef::Ceiling, 0);
+#endif
+                continue;
+            }
+        }
         float sx = wx / tx.uScale + tx.uOffset, sy = wy / tx.vScale + tx.vOffset;
         uint32_t c = img ? img->at(sx, sy) : sampleTile(base, sx, sy);
         if(img && isClear(c)) continue; // colour-key: read through to whatever's behind
@@ -397,10 +435,11 @@ void Renderer::renderWorld(const Map& map, const Camera& P, int playerSector) {
                     skySpan(x, wt, cya - 1, sec.ceilingColor, sec.ceilingTextureId, ceilSurf);
                 else
                     planeSpan(P, x, wt, cya - 1, sec.ceiling, sec.ceilingColor, ceilSurf,
-                              sec.ceilingTexture, sec.ceilingTextureId, sec.ceilingLight, &sec);
+                              sec.ceilingTexture, sec.ceilingTextureId, sec.ceilingLight, &map,
+                              &sec, false);
                 planeSpan(P, x, cyb + 1, wb, sec.floor, sec.floorColor,
                           packSurface(now.sector, SurfaceRef::Floor, 0), sec.floorTexture,
-                          sec.floorTextureId, sec.floorLight, &sec);
+                          sec.floorTextureId, sec.floorLight, &map, &sec, true);
 
                 uint32_t wsurf = packSurface(now.sector, SurfaceRef::Wall, s);
                 const TextureTransform& wtx = sec.wallTextures[s];

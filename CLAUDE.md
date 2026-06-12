@@ -176,10 +176,15 @@ existing sector makes a **cutout** (`addCutout`): the parent gains a hole loop
 created; `rebuildPortals` bonds them into portals both ways. Then raise the inner
 floor to its ceiling for a **column**, lower the inner ceiling for a **recess**, or
 lower the inner floor for a **pit**. Map format: a `loop` line begins an inner loop.
-Floor/ceiling casting (`planeSpan`) skips pixels that fall inside a hole loop
-(`pointInHoles`) so the parent surface doesn't draw over the cutout — the inner
-sector, reached through the hole's portal walls, fills it (this is what makes sunken
-pits render correctly; a single-range column window can't notch out a hole).
+A platform/recess is *nearer* than the parent surface so the z-buffer already keeps
+it; only a **pit** (or an inner ceiling above ours) is on the far side. For those,
+`planeSpan` detects the pit hole under each floor/ceiling pixel (`farHoleInner`) and
+draws the **cutout's own surface** there (at its height, with its texture) instead
+of the parent's — so coverage is guaranteed and the depth shows. This sidesteps the
+portal flood: a single-range column window can't reliably reach every inner sector
+when one parent has many overlapping holes, but the inline draw doesn't need it to.
+The parent also draws the far drop-faces (the hole-wall risers), since the inner
+sector back-face-culls them from outside.
 
 **Doors & lifts.** A sector can be a `mover` (Sector in `Map.h`): a **door** (1)
 animates its **ceiling** between the floor (closed) and `moverRest` (the authored

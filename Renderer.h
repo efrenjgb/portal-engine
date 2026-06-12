@@ -96,6 +96,7 @@ class Renderer {
                   int texId, float light = 1.0f);
     void planeSpan(const Camera& cam, int x, int y0, int y1, float pz, uint32_t base, uint32_t surf,
                    const TextureTransform& tx, int texId, float light = 1.0f,
-                   const Sector* holes = nullptr);
+                   const Map* worldMap = nullptr, const Sector* holes = nullptr,
+                   bool isFloor = true);
     void skySpan(int x, int y0, int y1, uint32_t base, int texId, uint32_t surf);
 };

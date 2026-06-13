@@ -579,6 +579,7 @@ int main(int argc, char** argv) {
            "   C             :   tag aimed sector none/door/lift (door=ceiling, lift=floor)\n"
            "   J             :   match aimed floor/ceiling to the adjacent sector's height\n"
            "   Shift+Del      :   delete the aimed sector (cascades to its cutouts)\n"
+           "   Z             :   undo the last edit (works in 3D and 2D)\n"
            "   Enter         : 2D map view  (G grid snap, [ / ] grid finer/coarser, hold Alt to "
            "bypass | Z undo | Del/X delete vertex/sprite, Shift+Del delete sector)\n"
            "                     drag a vertex to move it; drag a sprite (diamond) to reposition "
@@ -646,6 +647,29 @@ int main(int argc, char** argv) {
     auto showMessage = [&](std::string s) {
         toasts.push_back({std::move(s), 3.0f});
         if(toasts.size() > 10) toasts.erase(toasts.begin());
+    };
+    // Restore the last snapshot. Works from both the 2D and 3D editor: after the
+    // sector list changes the player's sector index can dangle, so re-localize them
+    // by position (default to 0 if they end up outside every sector).
+    auto doUndo = [&]() {
+        if(undo.empty()) {
+            showMessage("nothing to undo");
+            return;
+        }
+        map.sectors = undo.back().sectors;
+        map.sprites = undo.back().sprites;
+        undo.pop_back();
+        dragVerts.clear();
+        dragSprite = -1;
+        Vec2 pp{player.camera.x, player.camera.y};
+        player.sector = 0;
+        for(int i = 0; i < (int)map.sectors.size(); ++i)
+            if(pointInSector(map.sectors[i], pp)) {
+                player.sector = i;
+                break;
+            }
+        printf("undo (%zu left)\n", undo.size());
+        showMessage("undo");
     };
 
     // ---- texture picker (B) ----
@@ -963,15 +987,7 @@ int main(int argc, char** argv) {
                         if(drawing) {
                             if(k == SDLK_BACKSPACE && !drawPts.empty()) drawPts.pop_back();
                         } else {
-                            if(k == SDLK_z && !undo.empty()) {
-                                map.sectors = undo.back().sectors;
-                                map.sprites = undo.back().sprites;
-                                undo.pop_back();
-                                dragVerts.clear();
-                                dragSprite = -1;
-                                printf("undo (%zu left)\n", undo.size());
-                                showMessage("undo");
-                            }
+                            if(k == SDLK_z) doUndo();
                             if(k == SDLK_DELETE || k == SDLK_BACKSPACE || k == SDLK_x) {
                                 VHit v = pickVertex(map, mvScale, mvOx, mvOy, mouseX, mouseY);
                                 int sp;
@@ -1139,6 +1155,7 @@ int main(int argc, char** argv) {
                             showMessage("deleted sector " + std::to_string(t));
                         } else showMessage("aim at a sector to delete it");
                     }
+                    if(k == SDLK_z && !mapView) doUndo(); // undo also works from the 3D view
                     if(k == SDLK_k) {
                         bool ok = saveMap(map, savePath);
                         showMessage(ok ? "saved " + savePath : "save failed");

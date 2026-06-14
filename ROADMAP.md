@@ -31,6 +31,9 @@ across sessions. Done items kept for context; open items grouped by theme.
 - `--novsync` flag; `.clang-format` + PostToolUse format hook
 - **CMake** build (Linux/macOS/Windows, GCC/Clang/MSVC/MinGW) + GitHub Actions
   that publish self-contained release zips per platform (bundled SDL2 + assets)
+- **Built-in GRP extractor** (`GrpExtract`, C++ port of `grp_extract.py`): drop a
+  Duke `.GRP` next to the binary or pass `--extract` → writes `textures/duke/` + anim.txt
+  with no Python (writes PNGs via vendored `stb_image_write.h`)
 - **Inner-sector cutouts** (columns/pits/platforms/recesses): draw a loop inside a
   sector → portal-bonded inner sector; correct concave/convex rim culling; rim
   texture stays synced across both sides; delete-sector + 3D undo

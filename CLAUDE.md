@@ -16,10 +16,19 @@ make          # editor build -> ./portal_engine  (EDITOR=1: in-engine editor + p
 make run      # build, then ./portal_engine (loads ./map.txt)
 make play     # stripped build (-DEDITOR=0): no editor, no pick buffer; cleans first
 make clean
-./portal_engine [mapfile] [--novsync] [--res WxH]   # mapfile defaults to ./map.txt;
+./portal_engine [mapfile] [--novsync] [--res WxH] [--extract <file.grp>]
+                                        # mapfile defaults to ./map.txt;
                                         # --novsync uncaps FPS; --res sets the framebuffer
                                         # (default 1024x768, 4:3). e.g. --res 1600x1200
+                                        # --extract decodes a BUILD .GRP to textures/duke/
 ```
+
+**GRP texture extraction.** `GrpExtract.{h,cpp}` is a C++ port of `tools/grp_extract.py`
+built into the binary (writes PNGs via the vendored `stb_image_write.h`, impl in
+`stb_image_impl.cpp`). At startup `main.cpp` runs it for an explicit `--extract <grp>`,
+or auto-extracts a `*.grp` found in the cwd / beside the binary when `textures/duke/`
+is empty — so a release binary produces the Duke art with no Python. It's SDL-free and
+in both builds; pixel-identical to the Python tool (same magenta colour-key + `anim.txt`).
 
 The `EDITOR` macro (default 1, set in `Vec2.h`) `#if`-strips all editor input, the
 2D map editor, and the per-pixel pick buffer. `make play` passes `-DEDITOR=0`.
@@ -148,6 +157,8 @@ height when aimed at one, else the sector's floor/ceiling).
 - `Map.{h,cpp}` — `Sector`/`Sprite`/`Map` data + the text map loader/saver.
 - `Player.{h,cpp}` — movement, wall/sprite collision, sector finding, jump/gravity.
 - `Texture.{h,cpp}` + vendored `stb_image.h` (impl isolated in `stb_image_impl.cpp`).
+- `GrpExtract.{h,cpp}` — SDL-free BUILD `.GRP` -> PNG extractor; writes via vendored
+  `stb_image_write.h` (impl also in `stb_image_impl.cpp`).
 
 ## Map format & the 2D editor
 

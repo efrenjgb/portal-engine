@@ -1,0 +1,106 @@
+name: build
+
+# Builds the engine on Linux, macOS and Windows on every push/PR. When a version
+# tag (v*) is pushed it also packages a self-contained zip per platform (binary +
+# the SDL2 runtime + the default map and base textures) and publishes them to a
+# GitHub Release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2 + Ninja
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev ninja-build
+      - name: Configure & build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Package (bundle libSDL2 + rpath $ORIGIN)
+        run: |
+          cmake --install build --prefix dist/portal-engine
+          cp -L "$(ldd build/portal_engine | awk '/libSDL2/{print $3}')" dist/portal-engine/
+          (cd dist && cmake -E tar cf ../portal-engine-linux.zip --format=zip portal-engine)
+      - name: Smoke test (runs against the bundled SDL2, not a system one)
+        run: bash .github/smoke-test.sh dist/portal-engine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portal-engine-linux
+          path: portal-engine-linux.zip
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2 + Ninja
+        run: brew install sdl2 ninja
+      - name: Configure & build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Package (bundle libSDL2 dylib + rpath @loader_path)
+        run: |
+          cmake --install build --prefix dist/portal-engine
+          cp "$(brew --prefix sdl2)/lib/libSDL2-2.0.0.dylib" dist/portal-engine/
+          (cd dist && cmake -E tar cf ../portal-engine-macos.zip --format=zip portal-engine)
+      - name: Smoke test (runs against the bundled SDL2, not a system one)
+        run: bash .github/smoke-test.sh dist/portal-engine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portal-engine-macos
+          path: portal-engine-macos.zip
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+      - name: Configure & build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Package (bundle SDL2.dll)
+        run: |
+          cmake --install build --prefix dist/portal-engine
+          cp /mingw64/bin/SDL2.dll dist/portal-engine/
+          (cd dist && cmake -E tar cf ../portal-engine-windows.zip --format=zip portal-engine)
+      - name: Smoke test
+        run: bash .github/smoke-test.sh dist/portal-engine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portal-engine-windows
+          path: portal-engine-windows.zip
+
+  # On a v* tag, gather the three zips and publish them as a GitHub Release.
+  release:
+    needs: [linux, macos, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true

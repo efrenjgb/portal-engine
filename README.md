@@ -257,6 +257,14 @@ fires when `textures/duke/` is empty; force it any time with
 Python — handy for batch work; the C++ path means a release binary needs no Python.)
 The GRP and the extracted tiles are git-ignored — don't commit copyrighted art.
 
+**Getting a shareware GRP.** 3D Realms released the Duke Nukem 3D **shareware**
+episode for free redistribution, so you can grab a legitimate `DUKE3D.GRP` and use
+it with this engine. The **Internet Archive** mirrors the official shareware release
+— search [archive.org](https://archive.org) for *"Duke Nukem 3D shareware"* (the
+shareware GRP is ~10–11 MB; the registered/full GRPs are ~26–44 MB and are **not**
+redistributable). Drop that file next to the binary and it auto-extracts on first
+run. Only the shareware art is free to redistribute; the full game's is copyrighted.
+
 ## Things deliberately left out (good next steps)
 
 - **Sloped floors**, and **"sector over sector"** stacking (Build's room-over-room

@@ -3,6 +3,10 @@ portal_engine
 *.o
 *.dSYM/
 
+# CMake out-of-source build + packaged release layout
+/build/
+/dist/
+
 # maps saved from the in-engine editor
 *.save
 

@@ -33,7 +33,7 @@ if(NOT TARGET SDL2::SDL2)
 endif()
 
 add_executable(portal_engine
-    main.cpp Map.cpp Renderer.cpp Player.cpp Texture.cpp stb_image_impl.cpp)
+    main.cpp Map.cpp Renderer.cpp Player.cpp Texture.cpp GrpExtract.cpp stb_image_impl.cpp)
 
 if(NOT PORTAL_EDITOR)
     target_compile_definitions(portal_engine PRIVATE EDITOR=0)

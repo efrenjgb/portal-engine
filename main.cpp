@@ -15,6 +15,7 @@
 #include "Texture.h"
 #include "Renderer.h"
 #include "Player.h"
+#include "GrpExtract.h"
 
 #if EDITOR
 // ---- 2D map-editor helpers (operate on the Map's vertices) -----------------
@@ -420,12 +421,14 @@ int main(int argc, char** argv) {
     // the frame rate (renderer created without SDL_RENDERER_PRESENTVSYNC).
     // --res WxH (or --res=WxH) sets the framebuffer size; default is 4:3 1024x768.
     std::string mapPath = "map.txt";
+    std::string extractGrp; // --extract <file.grp>
     bool vsync = true;
     int resW = 1024, resH = 768;
     for(int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         int w, h;
         if(a == "--novsync") vsync = false;
+        else if(a == "--extract" && i + 1 < argc) extractGrp = argv[++i];
         else if(a == "--res" && i + 1 < argc && sscanf(argv[++i], "%dx%d", &w, &h) == 2 && w > 0 &&
                 h > 0) {
             resW = w;
@@ -435,6 +438,34 @@ int main(int argc, char** argv) {
             resW = w;
             resH = h;
         } else if(a.rfind("--", 0) != 0) mapPath = a;
+    }
+
+    // Texture extraction from a BUILD .GRP (Duke shareware). An explicit
+    // --extract <grp> always runs; otherwise, if textures/duke/ isn't populated
+    // yet, auto-extract a *.grp found in the working dir or next to the binary —
+    // so a release user just drops DUKE3D.GRP beside the executable.
+    {
+        namespace fs = std::filesystem;
+        std::string grpPath = extractGrp;
+        if(grpPath.empty()) {
+            std::error_code ec;
+            bool ready = fs::exists("textures/duke", ec) && !fs::is_empty("textures/duke", ec);
+            if(!ready) {
+                grpPath = grp::findGrp(".");
+                if(grpPath.empty()) {
+                    std::string a0 = argv[0];
+                    size_t s = a0.find_last_of("/\\");
+                    if(s != std::string::npos) grpPath = grp::findGrp(a0.substr(0, s));
+                }
+            }
+        }
+        if(!grpPath.empty()) {
+            printf("extracting textures from '%s' ...\n", grpPath.c_str());
+            grp::ExtractResult r = grp::extract(grpPath, "textures/duke");
+            if(r.ok)
+                printf("  -> %d tiles + %d animated entries in textures/duke/\n", r.tiles, r.anims);
+            else fprintf(stderr, "  extraction failed: %s\n", r.error.c_str());
+        }
     }
     auto loaded = loadMap(mapPath);
     if(!loaded) return 1;
@@ -591,7 +622,8 @@ int main(int argc, char** argv) {
            "   P             : set player start to current position\n"
            "   K             : save edited map (to <mapfile>.save)\n");
 #endif
-    printf("   Esc           : quit\n\n");
+    printf("   Esc           : quit\n");
+    printf("   (textures: drop a Duke .GRP next to the binary, or --extract <file.grp>)\n\n");
 
     bool running = true, mouseGrabbed = true, editMode = false;
     Uint32 prev = SDL_GetTicks();

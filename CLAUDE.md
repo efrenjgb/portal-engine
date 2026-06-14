@@ -25,6 +25,13 @@ The `EDITOR` macro (default 1, set in `Vec2.h`) `#if`-strips all editor input, t
 2D map editor, and the per-pixel pick buffer. `make play` passes `-DEDITOR=0`.
 After a `make play`, run plain `make` to get the editor build back.
 
+The `Makefile` is the primary local path (macOS/Linux). `CMakeLists.txt` mirrors
+it for cross-platform / Windows builds (`-DPORTAL_EDITOR=OFF` is the `make play`
+equivalent) and is what `.github/workflows/release.yml` drives to publish
+self-contained release zips per OS (bundled SDL2 + `map.txt` + base textures;
+`.github/smoke-test.sh` headless-launches each to catch a broken binary). When
+changing sources, build flags, or the asset set, keep all three in sync.
+
 ## Testing
 
 There is no test framework. The renderer is deliberately **SDL-free** (`Renderer.cpp`

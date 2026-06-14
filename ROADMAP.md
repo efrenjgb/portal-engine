@@ -29,6 +29,11 @@ across sessions. Done items kept for context; open items grouped by theme.
 - **Sprite sizing**: picking a tile sizes the sprite to the texture's pixel aspect
   (`fitSprite`); `[`/`]` resizes the aimed sprite in 3D (aspect preserved)
 - `--novsync` flag; `.clang-format` + PostToolUse format hook
+- **CMake** build (Linux/macOS/Windows, GCC/Clang/MSVC/MinGW) + GitHub Actions
+  that publish self-contained release zips per platform (bundled SDL2 + assets)
+- **Inner-sector cutouts** (columns/pits/platforms/recesses): draw a loop inside a
+  sector → portal-bonded inner sector; correct concave/convex rim culling; rim
+  texture stays synced across both sides; delete-sector + 3D undo
 
 ## Open — editor polish / rough edges
 - Duplicate / zero-length vertex **merge** (drag/split onto a neighbour should merge)
@@ -50,7 +55,6 @@ across sessions. Done items kept for context; open items grouped by theme.
 
 ## Open — audio & build
 - Sound (SDL_mixer): footsteps, ambient, switch *clunk*
-- **CMake** build for one-command Windows / Linux / macOS (incl. MSVC)
 
 ---
 Suggested next: **doors/lifts + use key** (interactive) — now the biggest

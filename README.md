@@ -15,6 +15,29 @@ The default build includes the in-engine editor and its per-pixel pick buffer.
 the pick buffer entirely (saving ~2.25 MB and a per-pixel write) — a lean
 "runtime" binary. Run plain `make` afterwards to get the editor build back.
 
+### Prebuilt binaries
+
+Self-contained zips for Linux, macOS and Windows are attached to each
+[GitHub Release](../../releases) — unzip and run `portal_engine`; the SDL2
+runtime and the default map/textures are bundled in. (On macOS, first launch may
+need right-click → Open, since the binary isn't code-signed.)
+
+### Building from source
+
+The hand-rolled `Makefile` is the quick path on macOS/Linux (needs SDL2 +
+`sdl2-config`). For Windows, or a portable cross-platform build, use CMake:
+
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release   # add -DPORTAL_EDITOR=OFF for the "play" build
+cmake --build build
+cmake --install build --prefix dist         # optional: a runnable folder with assets
+```
+
+CMake finds SDL2 via `find_package` (install it with `apt install libsdl2-dev`,
+`brew install sdl2`, MSYS2's `mingw-w64-x86_64-SDL2`, or vcpkg's `sdl2`). On
+Windows the smoothest route is **MSYS2 (MinGW64)**, where the `Makefile` also
+works unchanged.
+
 The world is read from a **text map file** (`map.txt`) at startup, so you can
 edit the level without touching the code. See the comments at the top of `map.txt`
 for the format (sectors with floor/ceiling heights and colours, walls with

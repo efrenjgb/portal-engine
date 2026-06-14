@@ -502,13 +502,13 @@ int main(int argc, char** argv) {
 
     Renderer renderer(resW, resH);
 
-    // Load image textures referenced by the map (empty entry => procedural).
+    // Image textures + animated cycles referenced by the map. The build is wrapped
+    // in reloadTextures() so loading a different map at runtime (L) can rebuild them
+    // from scratch (texture ids index into the *new* map.textures).
     std::vector<Texture> texSet;
-    for(const std::string& tpath : map.textures) {
-        auto t = loadImage(tpath);
-        texSet.push_back(t ? std::move(*t) : Texture{});
-    }
-    renderer.setTextures(&texSet);
+    std::vector<TexAnim> anims;                 // animation cycles
+    std::vector<int> animOf;                    // texSet[i] -> index in anims, or -1
+    std::map<int, std::array<int, 3>> animMeta; // duke tile -> {num, type, speed}
 
     // "<dir>/tileNNNN.png" -> NNNN (the BUILD tile number), or -1 if not a tile.
     auto tileNumOf = [](const std::string& p) -> int {
@@ -526,31 +526,6 @@ int main(int argc, char** argv) {
         size_t s = p.find_last_of('/');
         return s == std::string::npos ? std::string(".") : p.substr(0, s);
     };
-
-    // Animated textures (BUILD picanm). anims[] are the cycles; animOf[i] maps
-    // texSet[i] -> an index in anims (-1 = static). Frame tiles are loaded into
-    // texSet (and map.textures, to keep them 1:1) so they round-trip on save.
-    std::vector<TexAnim> anims;
-    std::vector<int> animOf(texSet.size(), -1);
-    std::map<int, std::array<int, 3>> animMeta; // duke tile -> {num, type, speed}
-    {
-        std::string dukeDir;
-        for(const std::string& p : map.textures)
-            if(tileNumOf(p) >= 0) {
-                dukeDir = dirOf(p);
-                break;
-            }
-        if(!dukeDir.empty()) {
-            std::ifstream af(dukeDir + "/anim.txt");
-            std::string line;
-            while(std::getline(af, line)) {
-                if(line.empty() || line[0] == '#') continue;
-                int tile, num, type, speed;
-                if(sscanf(line.c_str(), "%d %d %d %d", &tile, &num, &type, &speed) == 4)
-                    animMeta[tile] = {num, type, speed};
-            }
-        }
-    }
     // load a frame tile into texSet/map.textures (deduped), return its id
     auto loadFrame = [&](const std::string& path) -> int {
         for(int i = 0; i < (int)map.textures.size(); ++i)
@@ -581,8 +556,67 @@ int main(int argc, char** argv) {
         animOf[id] = (int)anims.size() - 1;
         renderer.setTextures(&texSet); // may have grown with frame tiles
     };
-    for(int i = (int)map.textures.size() - 1; i >= 0; --i) setupAnim(i);
-    renderer.setAnimations(&anims, &animOf);
+    // (Re)build texSet + anims from the current map.textures. Runs at startup and
+    // whenever a map is loaded at runtime. Empty texture entry => procedural.
+    auto reloadTextures = [&]() {
+        texSet.clear();
+        for(const std::string& tpath : map.textures) {
+            auto t = loadImage(tpath);
+            texSet.push_back(t ? std::move(*t) : Texture{});
+        }
+        anims.clear();
+        animOf.assign(texSet.size(), -1);
+        animMeta.clear();
+        std::string dukeDir;
+        for(const std::string& p : map.textures)
+            if(tileNumOf(p) >= 0) {
+                dukeDir = dirOf(p);
+                break;
+            }
+        if(!dukeDir.empty()) {
+            std::ifstream af(dukeDir + "/anim.txt");
+            std::string line;
+            while(std::getline(af, line)) {
+                if(line.empty() || line[0] == '#') continue;
+                int tile, num, type, speed;
+                if(sscanf(line.c_str(), "%d %d %d %d", &tile, &num, &type, &speed) == 4)
+                    animMeta[tile] = {num, type, speed};
+            }
+        }
+        for(int i = (int)map.textures.size() - 1; i >= 0; --i) setupAnim(i);
+        renderer.setTextures(&texSet);
+        renderer.setAnimations(&anims, &animOf);
+    };
+    reloadTextures();
+
+#if EDITOR
+    // Load a map file at runtime (L in the editor): replace the world, rebuild the
+    // textures, and drop the player into it — keeping their position if it's still
+    // inside the new geometry, else jumping to the loaded map's start.
+    auto loadMapFile = [&](const std::string& path) -> bool {
+        auto l = loadMap(path);
+        if(!l) return false;
+        map = std::move(*l);
+        reloadTextures();
+        int ps = -1;
+        for(int i = 0; i < (int)map.sectors.size(); ++i)
+            if(pointInSector(map.sectors[i], {player.camera.x, player.camera.y})) {
+                ps = i;
+                break;
+            }
+        if(ps < 0) {
+            player.camera.x = map.playerStart.x;
+            player.camera.y = map.playerStart.y;
+            player.camera.angle = map.startAngle;
+            ps = map.startSector;
+        }
+        player.sector = (ps >= 0 && ps < (int)map.sectors.size()) ? ps : 0;
+        if(!map.sectors.empty())
+            player.camera.z = map.sectors[player.sector].floor + PLAYER_EYE_HEIGHT;
+        player.camera.update();
+        return true;
+    };
+#endif
 
     printf("\n  Build-style portal engine (C++)%s\n"
            "  -------------------------------\n"
@@ -620,7 +654,8 @@ int main(int argc, char** argv) {
            "                     B draws a new sector (click points, click first to close);\n"
            "                       drawn fully inside a sector -> a cutout (pillar/recess)\n"
            "   P             : set player start to current position\n"
-           "   K             : save edited map (to <mapfile>.save)\n");
+           "   K             : save edited map (to <mapfile>.save)\n"
+           "   L             : load the saved map (<mapfile>.save) — open it / revert\n");
 #endif
     printf("   Esc           : quit\n");
     printf("   (textures: drop a Duke .GRP next to the binary, or --extract <file.grp>)\n\n");
@@ -1191,6 +1226,13 @@ int main(int argc, char** argv) {
                     if(k == SDLK_k) {
                         bool ok = saveMap(map, savePath);
                         showMessage(ok ? "saved " + savePath : "save failed");
+                    }
+                    if(k == SDLK_l) { // load the saved map (<mapfile>.save): open it / revert
+                        if(loadMapFile(savePath)) {
+                            undo.clear(); // textures changed; old snapshots no longer match
+                            printf("loaded %s\n", savePath.c_str());
+                            showMessage("loaded " + savePath);
+                        } else showMessage("no saved map at " + savePath);
                     }
                     if(k == SDLK_p) {
                         map.playerStart = {player.camera.x, player.camera.y};
